@@ -172,8 +172,8 @@ def run_batch_predictions(uploaded_file_content, api_key_val, required_api_colum
     for i, record_dict in enumerate(records_to_send):
         prediction, prob_active, prob_terminated = call_api_for_row(record_dict, api_key_val)
         df_full.loc[i, "Predicted Status"] = prediction
-        df_full.loc[i, "Probability (Active)"] = prob_active
-        df_full.loc[i, "Probability (Terminated)"] = prob_terminated
+        df_full.loc[i, "Probability (Active)"] = prob_active * 100
+        df_full.loc[i, "Probability (Terminated)"] = prob_terminated * 100
         percent_complete = (i + 1) / len(records_to_send)
         my_bar.progress(percent_complete, text=f"Processing record {i+1}/{len(records_to_send)}...")
 
@@ -184,7 +184,7 @@ def run_batch_predictions(uploaded_file_content, api_key_val, required_api_colum
     df_full['Predicted Attrition Probability'] = df_full['Probability (Terminated)']
     df_full['Attrition Risk Level'] = pd.cut(
         df_full['Predicted Attrition Probability'],
-        bins=[0, 0.4999, 0.75, 1.0],
+        bins=[0, 49.99, 75, 100],
         labels=['Low Risk (<50%)', 'Medium Risk (50-75%)', 'High Risk (>75%)'],
         right=True
     )
@@ -351,14 +351,16 @@ if submit_single:
         }
 
         prediction_label, probability_active, probability_terminated = call_api_for_row(single_row_data, API_KEY)
+        perc_active = probability_active * 100
+        perc_term = probability_terminated * 100
 
         if prediction_label != "ERROR":
-            st.write(f"**Predicted Employee Status:** `{prediction_label}`")
+            display_status = 'Active' if prediction_label == 'A' else 'Terminated'
+            st.write(f"**Predicted Employee Status:** `{display_status}`")
+
             st.write("**Class Probabilities:**")
             st.markdown(f"""
-            - `A` (Active): **{probability_active:.2%}**
-            - `T` (Terminated): **{probability_terminated:.2%}**
-            """)
+            - Active: **{perc_active:.2f}%** - Terminated: **{perc_term:.2f}%** """)
         else:
             st.error("Failed to get prediction for the single employee. See errors above.")
 
