@@ -7,13 +7,12 @@ from datetime import date
 from io import BytesIO
 import plotly.express as px
 import numpy as np
-import hashlib # Import hashlib for creating file hashes
+import hashlib
 
 API_URL = "https://attrition-pred-v1-debug-score.eastus2.inference.ml.azure.com/score"
-API_KEY = st.secrets["API_KEY"] # Read API_KEY from secrets
+API_KEY = st.secrets["API_KEY"] 
 
 REQUIRED_API_COLUMNS = [
-    "Employee status",
     "Term date",
     "Gender",
     "Marital status",
@@ -63,7 +62,6 @@ with col_input:
         employee_type = st.selectbox("Employee Type", ["Full-time", "Part-time", "Temporary"], key="single_emp_type")
         rehire = st.selectbox("Rehire", ["Yes", "No"], key="single_rehire")
         home_dept = st.text_input("Home Department", key="single_home_dept")
-        emp_status = st.selectbox("Employee Status", ["A", "T"], key="single_emp_status")  # A = Active, T = Terminated
         term_date = st.text_input("Termination Date (YYYY-MM-DD or leave blank)", placeholder="Optional", key="single_term_date")
 
         submit_single = st.form_submit_button("Predict Single Employee")
@@ -71,12 +69,11 @@ with col_input:
 
 with col_output:
     st.header("Prediction Results")
-    results_placeholder = st.empty() # Placeholder for dynamic results
+    results_placeholder = st.empty() 
 
     if not uploaded_file and not submit_single:
         results_placeholder.info("Upload an Excel file or fill the form and click 'Predict' to see results.")
 
-# --- Function to call the API for a single row (accepts API_KEY) ---
 def call_api_for_row(row_data_dict, api_key):
     headers = {
         "Content-Type": "application/json",
@@ -135,7 +132,6 @@ def run_batch_predictions(uploaded_file_content, api_key_val, required_api_colum
 
     df_processed_for_api = df_full[required_api_columns].copy()
 
-    # --- Type Conversions and Handling NaN/NaT for API ---
     for col in ['Hourly comp', 'Age']:
         if col in df_processed_for_api.columns:
             df_processed_for_api[col] = pd.to_numeric(df_processed_for_api[col], errors='coerce').fillna(0)
@@ -149,7 +145,6 @@ def run_batch_predictions(uploaded_file_content, api_key_val, required_api_colum
             df_processed_for_api[col] = pd.to_datetime(df_processed_for_api[col], errors='coerce')
             df_processed_for_api[col] = df_processed_for_api[col].dt.strftime('%Y-%m-%d').replace({np.nan: None, 'NaT': None})
 
-    # Prepare records for API calls
     records_to_send = []
     for _, row in df_processed_for_api.iterrows():
         record_dict = {}
@@ -160,12 +155,11 @@ def run_batch_predictions(uploaded_file_content, api_key_val, required_api_colum
                 record_dict[key] = value
         records_to_send.append(record_dict)
 
-    # Initialize new columns in df_full
     df_full["Predicted Status"] = ""
     df_full["Probability (Active)"] = 0.0
     df_full["Probability (Terminated)"] = 0.0
 
-    # --- Progress bar setup (THIS IS BACK!) ---
+    # --- Progress bar setup ---
     st.info("Beginning batch prediction.")
     my_bar = st.progress(0, text="Processing records...")
 
@@ -316,7 +310,6 @@ if submit_single:
         st.subheader("Single Prediction Output")
 
         single_row_data = {
-            "Employee status": emp_status,
             "Term date": term_date if term_date else None,
             "Gender": gender,
             "Marital status": marital_status,
