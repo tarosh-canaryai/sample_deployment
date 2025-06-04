@@ -3,7 +3,7 @@ import json
 import urllib.request
 import urllib.error
 import pandas as pd
-from datetime import date
+from datetime import date, timedelta
 from io import BytesIO
 import plotly.express as px
 import numpy as np
