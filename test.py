@@ -13,7 +13,7 @@ API_URL = "https://attrition-pred-v1-debug-score.eastus2.inference.ml.azure.com/
 API_KEY = st.secrets["API_KEY"] 
 
 REQUIRED_API_COLUMNS = [
-    "Term date",
+    # "Term date",
     "Gender",
     "Marital status",
     "Hourly comp",
@@ -62,7 +62,7 @@ with col_input:
         employee_type = st.selectbox("Employee Type", ["Full-time", "Part-time", "Temporary"], key="single_emp_type")
         rehire = st.selectbox("Rehire", ["Yes", "No"], key="single_rehire")
         home_dept = st.text_input("Home Department", key="single_home_dept")
-        term_date = st.text_input("Termination Date (YYYY-MM-DD or leave blank)", placeholder="Optional", key="single_term_date")
+        # term_date = st.text_input("Termination Date (YYYY-MM-DD or leave blank)", placeholder="Optional", key="single_term_date")
 
         submit_single = st.form_submit_button("Predict Single Employee")
 
@@ -310,7 +310,7 @@ if submit_single:
         st.subheader("Single Prediction Output")
 
         single_row_data = {
-            "Term date": term_date if term_date else None,
+            # "Term date": term_date if term_date else None,
             "Gender": gender,
             "Marital status": marital_status,
             "Hourly comp": hourly_comp,
