@@ -60,18 +60,14 @@ with col_input:
         
         race = st.selectbox("Race", ["Asian", "Black", "White", "Hispanic", "Other"], key="single_race")
         state = st.selectbox("State", ["NY", "CA", "TX", "FL", "IL", "Other"], key="single_state")
-        
-        # Changed default value for Age to 20
         age = st.number_input("Age", min_value=16, max_value=100, step=1, value=20, key="single_age")
         
-        # Changed default value for Hire Date to 6 months in the past
         six_months_ago = date.today() - timedelta(days=6*30) # Approx. 6 months
         hire_date = st.date_input("Hire Date", value=six_months_ago, key="single_hire_date")
         
         employee_type = st.selectbox("Employee Type", ["Full-time", "Part-time", "Temporary"], key="single_emp_type")
         rehire = st.selectbox("Rehire", ["Yes", "No"], key="single_rehire")
         home_dept = st.text_input("Home Department", key="single_home_dept")
-        employee_status = st.selectbox("Employee Status", ["A", "T"], key="single_emp_status")  
         # term_date = st.text_input("Termination Date (YYYY-MM-DD or leave blank)", placeholder="Optional", key="single_term_date")
 
         submit_single = st.form_submit_button("Predict Single Employee")
@@ -311,6 +307,28 @@ if uploaded_file:
                 st.plotly_chart(fig_bar, use_container_width=True)
             else:
                 st.warning("Cannot analyze attrition by state: 'State' column not found in the uploaded data.")
+
+            # --- Predicted Attrition Risk by Home Department (Bar Chart - Plotly) ---
+            if 'Home Department' in df_with_predictions.columns:
+                department_attrition_risk = df_with_predictions.groupby('Home Department')['Predicted Attrition Probability'].mean().reset_index()
+                department_attrition_risk = department_attrition_risk.sort_values(by='Predicted Attrition Probability', ascending=False)
+
+                fig_dept_bar = px.bar(
+                    department_attrition_risk,
+                    x='Home Department',
+                    y='Predicted Attrition Probability',
+                    color='Predicted Attrition Probability',
+                    color_continuous_scale=px.colors.sequential.Viridis,
+                    title='Average Predicted Attrition Risk by Home Department',
+                    labels={
+                        'Predicted Attrition Probability': 'Average Predicted Attrition Probability'
+                    },
+                    hover_data={'Predicted Attrition Probability': ':.2%'}
+                )
+                fig_dept_bar.update_layout(xaxis_tickangle=-45) # Keep angle for long department names
+                st.plotly_chart(fig_dept_bar, use_container_width=True)
+            else:
+                st.warning("Cannot analyze attrition by department: 'Home Department' column not found in the uploaded data.")
 
 
 # --- Handle Single Prediction (remains the same) ---
