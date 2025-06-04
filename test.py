@@ -7,11 +7,13 @@ from datetime import date
 from io import BytesIO
 import plotly.express as px
 import numpy as np
+import hashlib # Import hashlib for creating file hashes
 
 API_URL = "https://attrition-pred-v1-debug-score.eastus2.inference.ml.azure.com/score"
 API_KEY = st.secrets["API_KEY"] # Read API_KEY from secrets
 
 REQUIRED_API_COLUMNS = [
+    "Employee status",
     "Term date",
     "Gender",
     "Marital status",
@@ -61,6 +63,7 @@ with col_input:
         employee_type = st.selectbox("Employee Type", ["Full-time", "Part-time", "Temporary"], key="single_emp_type")
         rehire = st.selectbox("Rehire", ["Yes", "No"], key="single_rehire")
         home_dept = st.text_input("Home Department", key="single_home_dept")
+        emp_status = st.selectbox("Employee Status", ["A", "T"], key="single_emp_status")  # A = Active, T = Terminated
         term_date = st.text_input("Termination Date (YYYY-MM-DD or leave blank)", placeholder="Optional", key="single_term_date")
 
         submit_single = st.form_submit_button("Predict Single Employee")
@@ -73,11 +76,11 @@ with col_output:
     if not uploaded_file and not submit_single:
         results_placeholder.info("Upload an Excel file or fill the form and click 'Predict' to see results.")
 
-# --- Function to call the API for a single row (now accepts API_KEY) ---
+# --- Function to call the API for a single row (accepts API_KEY) ---
 def call_api_for_row(row_data_dict, api_key):
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}", # Use the passed API_KEY
+        "Authorization": f"Bearer {api_key}",
         "Accept": "application/json"
     }
 
@@ -120,22 +123,16 @@ def call_api_for_row(row_data_dict, api_key):
         return "ERROR", 0.0, 0.0
 
 
-# --- CACHED FUNCTION FOR BATCH PREDICTIONS ---
-@st.cache_data(show_spinner="Running predictions for your file...")
-def get_processed_dataframe_with_predictions(uploaded_file_content, api_key_val, required_api_columns, display_columns):
-    # Read the Excel file content into a DataFrame
+# --- Function to process file and run predictions (NOT CACHED, will use st.session_state) ---
+def run_batch_predictions(uploaded_file_content, api_key_val, required_api_columns):
     df_full = pd.read_excel(BytesIO(uploaded_file_content))
 
     # Check for missing columns
     missing_cols = [col for col in required_api_columns if col not in df_full.columns]
     if missing_cols:
         st.error(f"Error: The uploaded file is missing required columns: {', '.join(missing_cols)}.")
-        st.stop() # Stop execution if critical columns are missing
-        # In a cached function, it's better to raise an exception or return an error state
-        # raise ValueError(f"Missing required columns: {', '.join(missing_cols)}")
+        return None # Indicate failure if columns are missing
 
-
-    # Create a copy with only the required columns for API processing
     df_processed_for_api = df_full[required_api_columns].copy()
 
     # --- Type Conversions and Handling NaN/NaT for API ---
@@ -144,7 +141,7 @@ def get_processed_dataframe_with_predictions(uploaded_file_content, api_key_val,
             df_processed_for_api[col] = pd.to_numeric(df_processed_for_api[col], errors='coerce').fillna(0)
             if col == 'Age':
                 df_processed_for_api[col] = df_processed_for_api[col].astype(int)
-            else: # Hourly comp
+            else:
                 df_processed_for_api[col] = df_processed_for_api[col].astype(float)
 
     for col in ['Hire Date', 'Term date']:
@@ -168,14 +165,21 @@ def get_processed_dataframe_with_predictions(uploaded_file_content, api_key_val,
     df_full["Probability (Active)"] = 0.0
     df_full["Probability (Terminated)"] = 0.0
 
+    # --- Progress bar setup (THIS IS BACK!) ---
+    st.info("Beginning batch prediction.")
+    my_bar = st.progress(0, text="Processing records...")
+
     # Perform API calls for each record
-    # Note: Progress bar won't update visually inside a cached function's loop,
-    # but the 'show_spinner' argument handles the overall loading indicator.
     for i, record_dict in enumerate(records_to_send):
-        prediction, prob_active, prob_terminated = call_api_for_row(record_dict, api_key_val) # Pass API_KEY to API call
+        prediction, prob_active, prob_terminated = call_api_for_row(record_dict, api_key_val)
         df_full.loc[i, "Predicted Status"] = prediction
         df_full.loc[i, "Probability (Active)"] = prob_active
         df_full.loc[i, "Probability (Terminated)"] = prob_terminated
+        percent_complete = (i + 1) / len(records_to_send)
+        my_bar.progress(percent_complete, text=f"Processing record {i+1}/{len(records_to_send)}...")
+
+    my_bar.empty() # Clear the progress bar after completion
+    st.success("Batch prediction complete!")
 
     # Add columns needed for plotting
     df_full['Predicted Attrition Probability'] = df_full['Probability (Terminated)']
@@ -194,18 +198,40 @@ if uploaded_file:
     with col_output:
         st.subheader("Processing Excel File...")
 
-        try:
-            # Call the cached function to get the processed DataFrame
-            # Pass uploaded_file.getvalue() as the cache key (stable across reruns)
-            df_with_predictions = get_processed_dataframe_with_predictions(
-                uploaded_file.getvalue(),
-                API_KEY, # Pass the API_KEY from st.secrets to the cached function
-                REQUIRED_API_COLUMNS,
-                DISPLAY_COLUMNS # This parameter isn't directly used within the cached function but is a stable input
-            )
+        # Generate a unique hash for the uploaded file's content
+        file_content_hash = hashlib.md5(uploaded_file.getvalue()).hexdigest()
 
-            st.success("Batch prediction complete!")
+        # Check if predictions for this specific file are already in session_state
+        # If not present OR if the file hash doesn't match (new file uploaded)
+        if "batch_predictions_cache" not in st.session_state or \
+           st.session_state.batch_predictions_cache.get("file_hash") != file_content_hash:
+            # File is new or different, run predictions
+            try:
+                df_with_predictions = run_batch_predictions(
+                    uploaded_file.getvalue(), # Pass file content
+                    API_KEY, # Pass the API_KEY from st.secrets
+                    REQUIRED_API_COLUMNS
+                )
+                if df_with_predictions is not None: # Check if prediction was successful
+                    st.session_state.batch_predictions_cache = {
+                        "file_hash": file_content_hash,
+                        "df": df_with_predictions.copy() # Store a copy to avoid mutation issues
+                    }
+                else:
+                    st.stop() # Stop if run_batch_predictions returned None due to an error
+            except Exception as e:
+                st.error(f"Error processing Excel file or during prediction: {e}")
+                st.exception(e)
+                st.stop() # Stop on unhandled exception
 
+        else:
+            # File is the same, load from session_state cache
+            st.info("Loading predictions from cache.")
+            df_with_predictions = st.session_state.batch_predictions_cache["df"]
+
+
+        # If df_with_predictions exists (either newly computed or from session_state cache), display results
+        if df_with_predictions is not None:
             # Display the DataFrame with required columns and predictions
             st.subheader("Batch Prediction Results Table")
             st.dataframe(df_with_predictions[DISPLAY_COLUMNS])
@@ -283,17 +309,14 @@ if uploaded_file:
             else:
                 st.warning("Cannot analyze attrition by state: 'State' column not found in the uploaded data.")
 
-        except Exception as e:
-            st.error(f"Error processing Excel file or during prediction: {e}")
-            st.exception(e)
 
-
-# --- Handle Single Prediction ---
+# --- Handle Single Prediction (remains the same) ---
 if submit_single:
     with col_output:
         st.subheader("Single Prediction Output")
 
         single_row_data = {
+            "Employee status": emp_status,
             "Term date": term_date if term_date else None,
             "Gender": gender,
             "Marital status": marital_status,
@@ -307,7 +330,6 @@ if submit_single:
             "Home Department": home_dept
         }
 
-        # Use the global API_KEY here
         prediction_label, probability_active, probability_terminated = call_api_for_row(single_row_data, API_KEY)
 
         if prediction_label != "ERROR":
