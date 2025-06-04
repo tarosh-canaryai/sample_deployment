@@ -9,7 +9,7 @@ import plotly.express as px
 import numpy as np
 
 API_URL = "https://attrition-pred-v1-debug-score.eastus2.inference.ml.azure.com/score"
-API_KEY = st.secrets["API_KEY"]
+API_KEY = st.secrets["API_KEY"] # Read API_KEY from secrets
 
 REQUIRED_API_COLUMNS = [
     "Term date",
@@ -23,6 +23,12 @@ REQUIRED_API_COLUMNS = [
     "Employee type",
     "Rehire",
     "Home Department"
+]
+
+DISPLAY_COLUMNS = REQUIRED_API_COLUMNS + [
+    "Predicted Status",
+    "Probability (Active)",
+    "Probability (Terminated)"
 ]
 
 st.set_page_config(layout="wide")
@@ -67,12 +73,11 @@ with col_output:
     if not uploaded_file and not submit_single:
         results_placeholder.info("Upload an Excel file or fill the form and click 'Predict' to see results.")
 
-
-def call_api_for_row(row_data_dict):
-
+# --- Function to call the API for a single row (now accepts API_KEY) ---
+def call_api_for_row(row_data_dict, api_key):
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {API_KEY}",
+        "Authorization": f"Bearer {api_key}", # Use the passed API_KEY
         "Accept": "application/json"
     }
 
@@ -108,95 +113,108 @@ def call_api_for_row(row_data_dict):
         return "ERROR", 0.0, 0.0
     except json.JSONDecodeError as e:
         st.error(f"Failed to decode JSON from API for a row: {e}. Raw response: {raw_response_string}")
+        return "ERROR", 0.0, 0.0
     except Exception as e:
         st.error(f"An unexpected error occurred for a row: {e}")
         st.exception(e)
         return "ERROR", 0.0, 0.0
 
 
-# --- Handle Batch Upload ---
+# --- CACHED FUNCTION FOR BATCH PREDICTIONS ---
+@st.cache_data(show_spinner="Running predictions for your file...")
+def get_processed_dataframe_with_predictions(uploaded_file_content, api_key_val, required_api_columns, display_columns):
+    # Read the Excel file content into a DataFrame
+    df_full = pd.read_excel(BytesIO(uploaded_file_content))
+
+    # Check for missing columns
+    missing_cols = [col for col in required_api_columns if col not in df_full.columns]
+    if missing_cols:
+        st.error(f"Error: The uploaded file is missing required columns: {', '.join(missing_cols)}.")
+        st.stop() # Stop execution if critical columns are missing
+        # In a cached function, it's better to raise an exception or return an error state
+        # raise ValueError(f"Missing required columns: {', '.join(missing_cols)}")
+
+
+    # Create a copy with only the required columns for API processing
+    df_processed_for_api = df_full[required_api_columns].copy()
+
+    # --- Type Conversions and Handling NaN/NaT for API ---
+    for col in ['Hourly comp', 'Age']:
+        if col in df_processed_for_api.columns:
+            df_processed_for_api[col] = pd.to_numeric(df_processed_for_api[col], errors='coerce').fillna(0)
+            if col == 'Age':
+                df_processed_for_api[col] = df_processed_for_api[col].astype(int)
+            else: # Hourly comp
+                df_processed_for_api[col] = df_processed_for_api[col].astype(float)
+
+    for col in ['Hire Date', 'Term date']:
+        if col in df_processed_for_api.columns:
+            df_processed_for_api[col] = pd.to_datetime(df_processed_for_api[col], errors='coerce')
+            df_processed_for_api[col] = df_processed_for_api[col].dt.strftime('%Y-%m-%d').replace({np.nan: None, 'NaT': None})
+
+    # Prepare records for API calls
+    records_to_send = []
+    for _, row in df_processed_for_api.iterrows():
+        record_dict = {}
+        for key, value in row.items():
+            if pd.isna(value) or value == '':
+                record_dict[key] = None
+            else:
+                record_dict[key] = value
+        records_to_send.append(record_dict)
+
+    # Initialize new columns in df_full
+    df_full["Predicted Status"] = ""
+    df_full["Probability (Active)"] = 0.0
+    df_full["Probability (Terminated)"] = 0.0
+
+    # Perform API calls for each record
+    # Note: Progress bar won't update visually inside a cached function's loop,
+    # but the 'show_spinner' argument handles the overall loading indicator.
+    for i, record_dict in enumerate(records_to_send):
+        prediction, prob_active, prob_terminated = call_api_for_row(record_dict, api_key_val) # Pass API_KEY to API call
+        df_full.loc[i, "Predicted Status"] = prediction
+        df_full.loc[i, "Probability (Active)"] = prob_active
+        df_full.loc[i, "Probability (Terminated)"] = prob_terminated
+
+    # Add columns needed for plotting
+    df_full['Predicted Attrition Probability'] = df_full['Probability (Terminated)']
+    df_full['Attrition Risk Level'] = pd.cut(
+        df_full['Predicted Attrition Probability'],
+        bins=[0, 0.4999, 0.75, 1.0],
+        labels=['Low Risk (<50%)', 'Medium Risk (50-75%)', 'High Risk (>75%)'],
+        right=True
+    )
+
+    return df_full
+
+
+# --- Handle Batch Upload (Main App Flow) ---
 if uploaded_file:
     with col_output:
         st.subheader("Processing Excel File...")
 
         try:
-            df_full = pd.read_excel(BytesIO(uploaded_file.getvalue()))
-            st.success(f"Successfully loaded {len(df_full)} rows from '{uploaded_file.name}'.")
+            # Call the cached function to get the processed DataFrame
+            # Pass uploaded_file.getvalue() as the cache key (stable across reruns)
+            df_with_predictions = get_processed_dataframe_with_predictions(
+                uploaded_file.getvalue(),
+                API_KEY, # Pass the API_KEY from st.secrets to the cached function
+                REQUIRED_API_COLUMNS,
+                DISPLAY_COLUMNS # This parameter isn't directly used within the cached function but is a stable input
+            )
 
-            missing_cols = [col for col in REQUIRED_API_COLUMNS if col not in df_full.columns]
-            if missing_cols:
-                st.error(f"Error: The uploaded file is missing required columns: {', '.join(missing_cols)}. "
-                         f"Please ensure your Excel has these exact column names.")
-                st.stop() # Stop execution if critical columns are missing
-
-            # Create a copy with only the required columns for API processing
-            df_processed_for_api = df_full[REQUIRED_API_COLUMNS].copy()
-
-            # --- Type Conversions and Handling NaN/NaT for API  ---
-            for col in ['Hourly comp', 'Age']:
-                if col in df_processed_for_api.columns:
-                    df_processed_for_api[col] = pd.to_numeric(df_processed_for_api[col], errors='coerce').fillna(0)
-                    if col == 'Age':
-                        df_processed_for_api[col] = df_processed_for_api[col].astype(int)
-                    else: # Hourly comp
-                        df_processed_for_api[col] = df_processed_for_api[col].astype(float)
-
-            for col in ['Hire Date', 'Term date']:
-                if col in df_processed_for_api.columns:
-                    df_processed_for_api[col] = pd.to_datetime(df_processed_for_api[col], errors='coerce')
-                    df_processed_for_api[col] = df_processed_for_api[col].dt.strftime('%Y-%m-%d').replace({np.nan: None, 'NaT': None})
-
-            records_to_send = []
-            for _, row in df_processed_for_api.iterrows():
-                record_dict = {}
-                for key, value in row.items():
-                    if pd.isna(value) or value == '':
-                        record_dict[key] = None
-                    else:
-                        record_dict[key] = value
-                records_to_send.append(record_dict)
-
-            st.info("Beginning batch prediction.")
-
-            # Prepare columns for prediction results
-            df_full["Predicted Status"] = ""
-            df_full["Probability (Active)"] = 0.0
-            df_full["Probability (Terminated)"] = 0.0
-
-
-            progress_text = "Sending data to API and getting predictions."
-            my_bar = st.progress(0, text=progress_text)
-
-            for i, record_dict in enumerate(records_to_send):
-                prediction, prob_active, prob_terminated = call_api_for_row(record_dict)
-
-                df_full.loc[i, "Predicted Status"] = prediction
-                df_full.loc[i, "Probability (Active)"] = prob_active
-                df_full.loc[i, "Probability (Terminated)"] = prob_terminated
-
-                progress = (i + 1) / len(records_to_send)
-                my_bar.progress(progress, text=f"{progress_text} ({int(progress*100)}%)")
-
-            my_bar.empty()
             st.success("Batch prediction complete!")
 
-            # Define the columns for the final display and download
-            DISPLAY_COLUMNS = REQUIRED_API_COLUMNS + [
-                "Predicted Status",
-                "Probability (Active)",
-                "Probability (Terminated)"
-            ]
-            
-            # Create the DataFrame for display and download
-            df_display_download = df_full[DISPLAY_COLUMNS].copy()
-
+            # Display the DataFrame with required columns and predictions
             st.subheader("Batch Prediction Results Table")
-            st.dataframe(df_display_download) # Display the specific subset
+            st.dataframe(df_with_predictions[DISPLAY_COLUMNS])
 
-            csv = df_display_download.to_csv(index=False).encode('utf-8') # Export the specific subset
+            # Generate CSV for download
+            csv_data = df_with_predictions[DISPLAY_COLUMNS].to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="Download Results as CSV",
-                data=csv,
+                data=csv_data,
                 file_name="attrition_predictions.csv",
                 mime="text/csv",
             )
@@ -204,40 +222,27 @@ if uploaded_file:
             st.subheader("Interactive Visualizations of Attrition Risk")
 
             # --- Scatter Plot of Employee Attrition Risk (Plotly) ---
-            # Use df_full for plotting as it now contains prediction columns and we need to derive risk level
-            df_full['Predicted Attrition Probability'] = df_full['Probability (Terminated)']
-
-            # Create a categorical risk level for coloring and legend
-            df_full['Attrition Risk Level'] = pd.cut(
-                df_full['Predicted Attrition Probability'],
-                bins=[0, 0.4999, 0.75, 1.0],
-                labels=['Low Risk (<50%)', 'Medium Risk (50-75%)', 'High Risk (>75%)'],
-                right=True # Ensure 0.50 falls into medium risk
-            )
-
-            color_map = {
-                'Low Risk (<50%)': 'green',
-                'Medium Risk (50-75%)': 'gold',
-                'High Risk (>75%)': 'red'
-            }
-
             feature1 = 'Hourly comp'
             feature2 = 'Age'
 
-            if feature1 in df_full.columns and feature2 in df_full.columns:
-                # Filter for Hourly comp between 5 and 300
-                filtered_results_df_for_plot = df_full[
-                    (df_full[feature1] >= 5) & (df_full[feature1] <= 300)
+            if feature1 in df_with_predictions.columns and feature2 in df_with_predictions.columns:
+                filtered_results_df_for_plot = df_with_predictions[
+                    (df_with_predictions[feature1] >= 5) & (df_with_predictions[feature1] <= 300)
                 ].copy()
+
+                color_map = {
+                    'Low Risk (<50%)': 'green',
+                    'Medium Risk (50-75%)': 'gold',
+                    'High Risk (>75%)': 'red'
+                }
 
                 if not filtered_results_df_for_plot.empty:
                     fig_scatter = px.scatter(
-                        filtered_results_df_for_plot, # Use the filtered DataFrame for plotting
+                        filtered_results_df_for_plot,
                         x=feature1,
                         y=feature2,
                         color='Attrition Risk Level',
                         color_discrete_map=color_map,
-                        # Adjusted hover_data to include relevant info for the plot
                         hover_data=[feature1, feature2, 'Predicted Attrition Probability', 'Attrition Risk Level'],
                         title=f'Employee Attrition Risk Scatter Plot ({feature1} between $5 and $300)',
                         labels={
@@ -250,7 +255,6 @@ if uploaded_file:
                         hovertemplate=f"<b>{feature1}:</b> %{{x}}<br><b>{feature2}:</b> %{{y}}<br><b>Predicted Attrition Probability:</b> %{{customdata[0]:.2%}}<br><extra></extra>",
                         customdata=np.stack((filtered_results_df_for_plot['Predicted Attrition Probability'],), axis=-1)
                     )
-
                     st.plotly_chart(fig_scatter, use_container_width=True)
                 else:
                     st.warning(f"No data to plot for scatter plot after filtering '{feature1}' between $5 and $300.")
@@ -258,8 +262,8 @@ if uploaded_file:
                 st.warning(f"Cannot generate scatter plot: Features '{feature1}' or '{feature2}' not found or are not numerical.")
 
             # --- Predicted Attrition Risk by State (Bar Chart - Plotly) ---
-            if 'State' in df_full.columns: # Use df_full for this as well
-                state_attrition_risk = df_full.groupby('State')['Predicted Attrition Probability'].mean().reset_index()
+            if 'State' in df_with_predictions.columns:
+                state_attrition_risk = df_with_predictions.groupby('State')['Predicted Attrition Probability'].mean().reset_index()
                 state_attrition_risk = state_attrition_risk.sort_values(by='Predicted Attrition Probability', ascending=False)
 
                 fig_bar = px.bar(
@@ -276,14 +280,11 @@ if uploaded_file:
                 )
                 fig_bar.update_layout(xaxis_tickangle=-45)
                 st.plotly_chart(fig_bar, use_container_width=True)
-
             else:
                 st.warning("Cannot analyze attrition by state: 'State' column not found in the uploaded data.")
 
-        except pd.errors.EmptyDataError:
-            st.error("The uploaded Excel file is empty.")
         except Exception as e:
-            st.error(f"Error reading or processing Excel file: {e}")
+            st.error(f"Error processing Excel file or during prediction: {e}")
             st.exception(e)
 
 
@@ -306,7 +307,8 @@ if submit_single:
             "Home Department": home_dept
         }
 
-        prediction_label, probability_active, probability_terminated = call_api_for_row(single_row_data)
+        # Use the global API_KEY here
+        prediction_label, probability_active, probability_terminated = call_api_for_row(single_row_data, API_KEY)
 
         if prediction_label != "ERROR":
             st.write(f"**Predicted Employee Status:** `{prediction_label}`")
