@@ -54,18 +54,27 @@ with col_input:
     with st.form("attrition_form_single"):
         gender = st.selectbox("Gender", ["Male", "Female", "Other"], key="single_gender")
         marital_status = st.selectbox("Marital Status", ["Single", "Married", "Divorced", "Widowed"], key="single_marital")
-        hourly_comp = st.number_input("Hourly Compensation", min_value=0.0, step=0.5, key="single_hourly")
+        
+        # Changed default value for Hourly Compensation to 5.0
+        hourly_comp = st.number_input("Hourly Compensation", min_value=0.0, step=0.5, value=5.0, key="single_hourly")
+        
         race = st.selectbox("Race", ["Asian", "Black", "White", "Hispanic", "Other"], key="single_race")
         state = st.selectbox("State", ["NY", "CA", "TX", "FL", "IL", "Other"], key="single_state")
-        age = st.number_input("Age", min_value=16, max_value=100, step=1, key="single_age")
-        hire_date = st.date_input("Hire Date", value=date.today(), key="single_hire_date")
+        
+        # Changed default value for Age to 20
+        age = st.number_input("Age", min_value=16, max_value=100, step=1, value=20, key="single_age")
+        
+        # Changed default value for Hire Date to 6 months in the past
+        six_months_ago = date.today() - timedelta(days=6*30) # Approx. 6 months
+        hire_date = st.date_input("Hire Date", value=six_months_ago, key="single_hire_date")
+        
         employee_type = st.selectbox("Employee Type", ["Full-time", "Part-time", "Temporary"], key="single_emp_type")
         rehire = st.selectbox("Rehire", ["Yes", "No"], key="single_rehire")
         home_dept = st.text_input("Home Department", key="single_home_dept")
+        employee_status = st.selectbox("Employee Status", ["A", "T"], key="single_emp_status")  
         # term_date = st.text_input("Termination Date (YYYY-MM-DD or leave blank)", placeholder="Optional", key="single_term_date")
 
         submit_single = st.form_submit_button("Predict Single Employee")
-
 
 with col_output:
     st.header("Prediction Results")
