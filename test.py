@@ -360,7 +360,8 @@ if submit_single:
 
             st.write("**Class Probabilities:**")
             st.markdown(f"""
-            - Active: **{perc_active:.2f}%** - Terminated: **{perc_term:.2f}%** """)
+            - Active: **{perc_active:.2f}%** 
+            - Terminated: **{perc_term:.2f}%** """)
         else:
             st.error("Failed to get prediction for the single employee. See errors above.")
 
