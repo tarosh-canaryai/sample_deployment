@@ -264,7 +264,7 @@ if uploaded_file:
                         color='Attrition Risk Level',
                         color_discrete_map=color_map,
                         hover_data=[feature1, feature2, 'Predicted Attrition Probability', 'Attrition Risk Level'],
-                        title=f'Employee Attrition Risk Scatter Plot ({feature1} between $5 and $300)',
+                        title=f'Employee Attrition Risk Scatter Plot',
                         labels={
                             feature1: feature1,
                             feature2: feature2,
