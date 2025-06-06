@@ -10,7 +10,7 @@ import numpy as np
 import hashlib
 
 # API endpoint and key (key fetched securely from Streamlit secrets)
-API_URL = "https://attrition-pred-v1-debug-score.eastus2.inference.ml.azure.com/score"
+API_URL = "https://canaryep2.eastus.inference.ml.azure.com/score"
 API_KEY = st.secrets["API_KEY"] 
 
 # Required columns for making predictions
@@ -31,7 +31,8 @@ REQUIRED_API_COLUMNS = [
 DISPLAY_COLUMNS = REQUIRED_API_COLUMNS + [
     "Predicted Status",
     "Probability (Active)",
-    "Probability (Terminated)"
+    "Probability (Terminated)",
+    "Attrition Risk Level",
 ]
 
 st.set_page_config(layout="wide")
@@ -56,18 +57,23 @@ with col_input:
     st.header("Or Enter Single Employee Details")
     with st.form("attrition_form_single"):
         # Manual input fields for single employee prediction
-        gender = st.selectbox("Gender", ["Male", "Female", "Other"], key="single_gender")
-        marital_status = st.selectbox("Marital Status", ["Single", "Married", "Divorced", "Widowed"], key="single_marital")
+        gender = st.selectbox("Gender", ["M", "F", "Other"], key="single_gender")
+        marital_status = st.selectbox("Marital Status", ["S", "M"], key="single_marital")
         hourly_comp = st.number_input("Hourly Compensation", min_value=0.0, step=0.5, value=5.0, key="single_hourly")
         race = st.selectbox("Race", ["B","H","T","W","X"], key="single_race")
-        state = st.selectbox("State", ["NY", "CA", "TX", "FL", "IL", "Other"], key="single_state")
+        state = st.selectbox("State", ["AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", 
+                                    "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", 
+                                    "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", 
+                                    "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", 
+                                    "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+                                    "DC" ], key="single_state")
         age = st.number_input("Age", min_value=16, max_value=100, step=1, value=20, key="single_age")
         
         # Default hire date set to ~6 months ago
         six_months_ago = date.today() - timedelta(days=6*30) 
         hire_date = st.date_input("Hire Date", value=six_months_ago, key="single_hire_date")
 
-        employee_type = st.selectbox("Employee Type", ["Full-time", "Part-time", "Temporary"], key="single_emp_type")
+        employee_type = st.selectbox("Employee Type", ["Full time", "Part time", "Temporary"], key="single_emp_type")
         rehire = st.selectbox("Rehire", ["Yes", "No"], key="single_rehire")
         home_dept = st.text_input("Home Department", key="single_home_dept")
 
@@ -241,7 +247,7 @@ if uploaded_file:
         # --- Display Results ---
         if df_with_predictions is not None:
             st.subheader("Batch Prediction Results Table")
-            st.dataframe(df_with_predictions[DISPLAY_COLUMNS])
+            st.dataframe(df_with_predictions)
 
             # CSV download option
             csv_data = df_with_predictions[DISPLAY_COLUMNS].to_csv(index=False).encode('utf-8')
@@ -278,11 +284,8 @@ if uploaded_file:
                         title='Employee Attrition Risk Scatter Plot',
                         labels={feature1: feature1, feature2: feature2}
                     )
-                    fig_scatter.update_traces(
-                        hovertemplate="<b>%{x}</b> (x)<br><b>%{y}</b> (y)<br><b>Predicted:</b> %{customdata[0]:.2%}<extra></extra>",
-                        customdata=np.stack((filtered_df['Predicted Attrition Probability'],), axis=-1)
-                    )
                     st.plotly_chart(fig_scatter, use_container_width=True)
+
                 else:
                     st.warning(f"No data to plot after filtering '{feature1}' between $5 and $300.")
             else:
@@ -300,7 +303,7 @@ if uploaded_file:
                     color='Predicted Attrition Probability',
                     color_continuous_scale=px.colors.sequential.Viridis,
                     title='Average Predicted Attrition Risk by State',
-                    hover_data={'Predicted Attrition Probability': ':.2%'}
+                    hover_data={'Predicted Attrition Probability': ':.2'}
                 )
                 fig_bar.update_layout(xaxis_tickangle=-45)
                 st.plotly_chart(fig_bar, use_container_width=True)
@@ -319,7 +322,7 @@ if uploaded_file:
                     color='Predicted Attrition Probability',
                     color_continuous_scale=px.colors.sequential.Viridis,
                     title='Average Predicted Attrition Risk by Home Department',
-                    hover_data={'Predicted Attrition Probability': ':.2%'}
+                    hover_data={'Predicted Attrition Probability': ':.2'}
                 )
                 fig_dept_bar.update_layout(xaxis_tickangle=-45)
                 st.plotly_chart(fig_dept_bar, use_container_width=True)
@@ -353,17 +356,16 @@ if submit_single:
         perc_term = probability_terminated * 100
 
         if prediction_label != "ERROR":
-            display_status = "Active" if prediction_label == "A" else "Terminated"
+            display_status = "Stay" if prediction_label == "A" else "Leave"
             st.write(f"**Predicted Employee Status:** `{display_status}`")
 
             st.write("**Class Probabilities:**")
             st.markdown(f"""
-            - Active: **{perc_active:.2f}%**  
-            - Terminated: **{perc_term:.2f}%**
+            - Probability of Staying: **{perc_active:.2f}%**  
+            - Probability of Leaving: **{perc_term:.2f}%**
             """)
         else:
             st.error("Failed to get prediction for the single employee.")
 
         st.subheader("Input Data Sent to API")
         st.json(single_row_data)
-
