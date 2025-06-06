@@ -10,7 +10,7 @@ import numpy as np
 import hashlib
 
 # API endpoint and key (key fetched securely from Streamlit secrets)
-API_URL = "https://canaryep2.eastus.inference.ml.azure.com/score"
+API_URL = "https://attrition-pred-v1-debug-score.eastus2.inference.ml.azure.com/score"
 API_KEY = st.secrets["API_KEY"] 
 
 # Required columns for making predictions
