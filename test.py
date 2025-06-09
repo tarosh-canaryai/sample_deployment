@@ -247,7 +247,7 @@ if uploaded_file:
         # --- Display Results ---
         if df_with_predictions is not None:
             st.subheader("Batch Prediction Results Table")
-            st.dataframe(df_with_predictions)
+            st.dataframe(df_with_predictions[DISPLAY_COLUMNS])
 
             # CSV download option
             csv_data = df_with_predictions[DISPLAY_COLUMNS].to_csv(index=False).encode('utf-8')
