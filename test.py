@@ -246,7 +246,6 @@ def run_batch_predictions(uploaded_file_content, api_key_val, required_api_colum
         cox_12mo = prediction_results.get("cox_leave_12mo")
 
         # Store results in DataFrame
-        df_full.loc[i, "XGBoost Prediction"] = "Terminated" if xgb_prediction == 1 else ("Active" if xgb_prediction == 0 else "ERROR")
         df_full.loc[i, "XGBoost Prob. Leave"] = xgb_prob_leave * 100 if xgb_prob_leave is not None else np.nan
         df_full.loc[i, "Cox Prob. Leave (3mo)"] = cox_3mo * 100 if cox_3mo is not None else np.nan
         df_full.loc[i, "Cox Prob. Leave (6mo)"] = cox_6mo * 100 if cox_6mo is not None else np.nan
