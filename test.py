@@ -10,7 +10,7 @@ import numpy as np
 import hashlib
 
 # API endpoint and key (key fetched securely from Streamlit secrets)
-API_URL = "https://attrition-pred-v2-1.eastus2.inference.ml.azure.com/score" # MAKE SURE THIS IS YOUR ACTUAL ENDPOINT URL
+API_URL = "https://attrition-pred-v2-1.eastus2.inference.ml.azure.com/score" 
 API_KEY = st.secrets["API_KEY"] 
 
 # Required columns for making predictions
@@ -30,11 +30,14 @@ REQUIRED_API_COLUMNS = [
 # Columns to show in final output
 DISPLAY_COLUMNS = REQUIRED_API_COLUMNS + [
     "XGBoost Prediction",
-    "XGBoost Prob. Leave",
+    "XGBoost Prob. Leave",       # Overall/Current Tenure XGBoost Prob
+    "XGBoost Prob. Leave (3mo)", # NEW: Adjusted XGBoost Prob for 3 months
+    "XGBoost Prob. Leave (6mo)", # NEW: Adjusted XGBoost Prob for 6 months
+    "XGBoost Prob. Leave (12mo)",# NEW: Adjusted XGBoost Prob for 12 months
     "Cox Prob. Leave (3mo)",
     "Cox Prob. Leave (6mo)",
     "Cox Prob. Leave (12mo)",
-    "Attrition Risk Level", # Derived from XGBoost Prob. Leave
+    "Attrition Risk Level",      # Derived from XGBoost Prob. Leave
 ]
 
 st.set_page_config(layout="wide")
@@ -60,10 +63,8 @@ with col_input:
     with st.form("attrition_form_single"):
         # Manual input fields for single employee prediction
         gender = st.selectbox("Gender", ["M", "F", "Other"], key="single_gender")
-        # Expanded Marital Status options to better cover common inputs, matching backend mapping
         marital_status = st.selectbox("Marital Status", ["S", "M", "D", "W", "O"], key="single_marital", help="S: Single, M: Married, D: Divorced, W: Widowed, O: Other")
         hourly_comp = st.number_input("Hourly Compensation", min_value=0.0, step=0.5, value=5.0, key="single_hourly")
-        # Race options as per common historical codes (backend maps these)
         race = st.selectbox("Race", ["B","H","T","W","X", "A", "I", "D", "O", "P"], key="single_race", help="Common racial codes. Backend performs mapping.")
         state = st.selectbox("State", ["AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", 
                                         "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", 
@@ -73,7 +74,6 @@ with col_input:
                                         "DC" ], key="single_state")
         age = st.number_input("Age", min_value=16, max_value=100, step=1, value=20, key="single_age")
         
-        # Default hire date set to ~6 months ago
         six_months_ago = date.today() - timedelta(days=6*30) 
         hire_date = st.date_input("Hire Date", value=six_months_ago, key="single_hire_date")
 
@@ -81,7 +81,6 @@ with col_input:
         rehire = st.selectbox("Rehire", ["Yes", "No"], key="single_rehire")
         home_dept = st.text_input("Home Department", key="single_home_dept")
 
-        # Submit button for single prediction
         submit_single = st.form_submit_button("Predict Single Employee")
 
 with col_output:
@@ -99,7 +98,6 @@ def call_api_for_row(row_data_dict, api_key):
         "Accept": "application/json"
     }
 
-    # The API expects a 'data' key containing a list of records
     api_payload = {"data": [row_data_dict]}
     body = json.dumps(api_payload).encode("utf-8")
     req = urllib.request.Request(API_URL, body, headers)
@@ -109,61 +107,90 @@ def call_api_for_row(row_data_dict, api_key):
         result_bytes = response.read()
         raw_response_string = result_bytes.decode("utf-8")
 
-        # Your API might return a JSON string that encapsulates another JSON string
-        # This double decoding handles that specific scenario.
-        # If your API returns a direct JSON object, remove the inner json.loads
+        # # --- DEBUGGING LINE: Raw API Response ---
+        # st.sidebar.write("--- API Response Debug (call_api_for_row) ---")
+        # st.sidebar.write(f"Raw response (first 500 chars): {raw_response_string[:500]}...") 
+        # # --- END DEBUGGING LINE ---
+
         try:
             intermediate_dict = json.loads(raw_response_string)
-            if isinstance(intermediate_dict, str): # Check if the content is still a JSON string
+            if isinstance(intermediate_dict, str):
                 output = json.loads(intermediate_dict)
-            else: # If it's already a dictionary, use it directly
+            else:
                 output = intermediate_dict
         except json.JSONDecodeError:
-            # Fallback for direct JSON if double decoding fails
             output = json.loads(raw_response_string)
 
+        # # --- DEBUGGING LINE: Parsed API Output ---
+        # st.sidebar.write(f"Parsed Output Dict keys: {output.keys()}")
+        # if "predictions" in output and isinstance(output["predictions"], list) and len(output["predictions"]) > 0:
+        #     st.sidebar.write(f"First Prediction Dict keys: {output['predictions'][0].keys()}")
+        #     st.sidebar.json(output['predictions'][0]) # Show full content of first prediction
+        # else:
+        #     st.sidebar.write("No 'predictions' key or empty list in API response.")
+        # # --- END DEBUGGING LINE ---
 
         # Initialize all prediction results with None
         xgb_prediction = None
         xgb_prob_leave = None
+        xgb_prob_leave_3mo = None
+        xgb_prob_leave_6mo = None
+        xgb_prob_leave_12mo = None
         cox_leave_3mo = None
         cox_leave_6mo = None
         cox_leave_12mo = None
 
         if "predictions" in output and isinstance(output["predictions"], list) and len(output["predictions"]) > 0:
-            first_prediction_dict = output["predictions"][0] # Get the first (and only) prediction dict for this row
+            first_prediction_dict = output["predictions"][0] 
             
-            # Extract values using .get() for robustness against missing keys
             xgb_prediction = first_prediction_dict.get("xgb_prediction")
             xgb_prob_leave = first_prediction_dict.get("xgb_prob_leave")
+            
+            xgb_prob_leave_3mo = first_prediction_dict.get("xgb_prob_leave_3mo")
+            xgb_prob_leave_6mo = first_prediction_dict.get("xgb_prob_leave_6mo")
+            xgb_prob_leave_12mo = first_prediction_dict.get("xgb_prob_leave_12mo")
+
             cox_leave_3mo = first_prediction_dict.get("cox_leave_3mo")
             cox_leave_6mo = first_prediction_dict.get("cox_leave_6mo")
             cox_leave_12mo = first_prediction_dict.get("cox_leave_12mo")
 
-        # Return a dictionary of all extracted prediction values
         return {
             "xgb_prediction": xgb_prediction,
             "xgb_prob_leave": xgb_prob_leave,
+            "xgb_prob_leave_3mo": xgb_prob_leave_3mo,
+            "xgb_prob_leave_6mo": xgb_prob_leave_6mo,
+            "xgb_prob_leave_12mo": xgb_prob_leave_12mo,
             "cox_leave_3mo": cox_leave_3mo,
             "cox_leave_6mo": cox_leave_6mo,
             "cox_leave_12mo": cox_leave_12mo
         }
 
-    # Graceful handling of various error types
     except urllib.error.HTTPError as error:
         st.error(f"API request failed for a row with status code: {error.code}. Response: {error.read().decode('utf8', 'ignore')}")
+        # # --- DEBUGGING LINE: Error return ---
+        # st.sidebar.error(f"API HTTPError: {error.code} - {error.read().decode('utf8', 'ignore')}")
+        # # --- END DEBUGGING LINE ---
         return {
             "xgb_prediction": "ERROR",
-            "xgb_prob_leave": np.nan, # Use NaN for numerical errors
+            "xgb_prob_leave": np.nan, 
+            "xgb_prob_leave_3mo": np.nan,
+            "xgb_prob_leave_6mo": np.nan,
+            "xgb_prob_leave_12mo": np.nan,
             "cox_leave_3mo": np.nan,
             "cox_leave_6mo": np.nan,
             "cox_leave_12mo": np.nan
         }
     except json.JSONDecodeError as e:
         st.error(f"Failed to decode JSON from API for a row: {e}. Raw response: {raw_response_string}")
+        # # --- DEBUGGING LINE: Error return ---
+        # st.sidebar.error(f"API JSONDecodeError: {e}. Raw: {raw_response_string[:500]}...")
+        # # --- END DEBUGGING LINE ---
         return {
             "xgb_prediction": "ERROR",
             "xgb_prob_leave": np.nan,
+            "xgb_prob_leave_3mo": np.nan,
+            "xgb_prob_leave_6mo": np.nan,
+            "xgb_prob_leave_12mo": np.nan,
             "cox_leave_3mo": np.nan,
             "cox_leave_6mo": np.nan,
             "cox_leave_12mo": np.nan
@@ -171,9 +198,15 @@ def call_api_for_row(row_data_dict, api_key):
     except Exception as e:
         st.error(f"An unexpected error occurred for a row: {e}")
         st.exception(e)
+        # # --- DEBUGGING LINE: Error return ---
+        # st.sidebar.error(f"API General Error: {e}")
+        # # --- END DEBUGGING LINE ---
         return {
             "xgb_prediction": "ERROR",
             "xgb_prob_leave": np.nan,
+            "xgb_prob_leave_3mo": np.nan,
+            "xgb_prob_leave_6mo": np.nan,
+            "xgb_prob_leave_12mo": np.nan,
             "cox_leave_3mo": np.nan,
             "cox_leave_6mo": np.nan,
             "cox_leave_12mo": np.nan
@@ -190,32 +223,26 @@ def run_batch_predictions(uploaded_file_content, api_key_val, required_api_colum
         st.error(f"Error: The uploaded file is missing required columns: {', '.join(missing_cols)}.")
         return None 
 
-    # Ensure 'Term date' column is handled for preprocessing, even if empty
     if 'Term date' not in df_full.columns:
         df_full['Term date'] = None
     else:
-        # Ensure it's not some specific value that would cause issues in backend
         df_full['Term date'] = None 
 
-    # Prepare data for API by selecting only required columns
     df_processed_for_api = df_full[required_api_columns].copy()
 
-    # Ensure numeric fields are properly typed before sending to API
     for col in ['Hourly comp', 'Age']:
         if col in df_processed_for_api.columns:
-            df_processed_for_api[col] = pd.to_numeric(df_processed_for_api[col], errors='coerce').fillna(0) # Use 0 for NAs
+            df_processed_for_api[col] = pd.to_numeric(df_processed_for_api[col], errors='coerce').fillna(0)
             if col == 'Age':
                 df_processed_for_api[col] = df_processed_for_api[col].astype(int)
             else:
                 df_processed_for_api[col] = df_processed_for_api[col].astype(float)
 
-    # Convert datetime fields to proper string format for API (if present)
     for col in ['Hire Date', 'Term date']:
         if col in df_processed_for_api.columns:
             df_processed_for_api[col] = pd.to_datetime(df_processed_for_api[col], errors='coerce')
             df_processed_for_api[col] = df_processed_for_api[col].dt.strftime('%Y-%m-%d').replace({np.nan: None, 'NaT': None})
 
-    # Build list of records (dicts) for API call
     records_to_send = []
     for _, row in df_processed_for_api.iterrows():
         record_dict = {}
@@ -226,27 +253,37 @@ def run_batch_predictions(uploaded_file_content, api_key_val, required_api_colum
     # Initialize new columns to store predictions
     df_full["XGBoost Prediction"] = ""
     df_full["XGBoost Prob. Leave"] = np.nan
+    df_full["XGBoost Prob. Leave (3mo)"] = np.nan
+    df_full["XGBoost Prob. Leave (6mo)"] = np.nan
+    df_full["XGBoost Prob. Leave (12mo)"] = np.nan
     df_full["Cox Prob. Leave (3mo)"] = np.nan
     df_full["Cox Prob. Leave (6mo)"] = np.nan
     df_full["Cox Prob. Leave (12mo)"] = np.nan
 
-    # --- Progress bar setup ---
+    # # --- DEBUGGING LINE: Confirming initial columns ---
+    # st.sidebar.write("--- Batch Prediction Init Debug ---")
+    # st.sidebar.write(f"df_full columns after initialization: {df_full.columns.tolist()}")
+    # # --- END DEBUGGING LINE ---
+
     st.info("Beginning batch prediction. This may take a while for large files...")
     my_bar = st.progress(0, text="Processing records...")
 
-    # Call API for each record and update prediction results
     for i, record_dict in enumerate(records_to_send):
         prediction_results = call_api_for_row(record_dict, api_key_val)
         
-        # Extract values from the returned dictionary
         xgb_prediction = prediction_results.get("xgb_prediction")
         xgb_prob_leave = prediction_results.get("xgb_prob_leave")
+        xgb_3mo = prediction_results.get("xgb_prob_leave_3mo")
+        xgb_6mo = prediction_results.get("xgb_prob_leave_6mo")
+        xgb_12mo = prediction_results.get("xgb_prob_leave_12mo")
         cox_3mo = prediction_results.get("cox_leave_3mo")
         cox_6mo = prediction_results.get("cox_leave_6mo")
         cox_12mo = prediction_results.get("cox_leave_12mo")
 
-        # Store results in DataFrame
         df_full.loc[i, "XGBoost Prob. Leave"] = xgb_prob_leave * 100 if xgb_prob_leave is not None else np.nan
+        df_full.loc[i, "XGBoost Prob. Leave (3mo)"] = xgb_3mo * 100 if xgb_3mo is not None else np.nan
+        df_full.loc[i, "XGBoost Prob. Leave (6mo)"] = xgb_6mo * 100 if xgb_6mo is not None else np.nan
+        df_full.loc[i, "XGBoost Prob. Leave (12mo)"] = xgb_12mo * 100 if xgb_12mo is not None else np.nan
         df_full.loc[i, "Cox Prob. Leave (3mo)"] = cox_3mo * 100 if cox_3mo is not None else np.nan
         df_full.loc[i, "Cox Prob. Leave (6mo)"] = cox_6mo * 100 if cox_6mo is not None else np.nan
         df_full.loc[i, "Cox Prob. Leave (12mo)"] = cox_12mo * 100 if cox_12mo is not None else np.nan
@@ -254,19 +291,22 @@ def run_batch_predictions(uploaded_file_content, api_key_val, required_api_colum
         percent_complete = (i + 1) / len(records_to_send)
         my_bar.progress(percent_complete, text=f"Processing record {i+1}/{len(records_to_send)}...")
 
-    my_bar.empty()  # Clear progress bar
+    my_bar.empty()
     st.success("Batch prediction complete!")
 
-    # Add derived columns for visual analysis
-    # Use XGBoost probability of leaving for the general attrition risk level
     df_full['Predicted Attrition Probability'] = df_full['XGBoost Prob. Leave'] 
     df_full['Attrition Risk Level'] = pd.cut(
         df_full['Predicted Attrition Probability'],
         bins=[0, 49.99, 75, 100],
         labels=['Low Risk (<50%)', 'Medium Risk (50-75%)', 'High Risk (>75%)'],
         right=True,
-        include_lowest=True # Include 0 in the first bin
+        include_lowest=True
     )
+    
+    # # --- DEBUGGING LINE FOR BATCH DF before return ---
+    # st.sidebar.write("--- Batch DF Columns before return ---")
+    # st.sidebar.write(f"df_full columns before returning: {df_full.columns.tolist()}")
+    # # --- END DEBUGGING LINE ---
 
     return df_full
 
@@ -276,14 +316,11 @@ if uploaded_file:
     with col_output:
         st.subheader("Processing Excel File...")
 
-        # Generate a hash of file content to enable caching
         file_content_hash = hashlib.md5(uploaded_file.getvalue()).hexdigest()
 
-        # Check if cached predictions exist for this exact file
         if "batch_predictions_cache" not in st.session_state or \
            st.session_state.batch_predictions_cache.get("file_hash") != file_content_hash:
 
-            # New file detected – run predictions
             try:
                 df_with_predictions = run_batch_predictions(
                     uploaded_file.getvalue(),
@@ -296,23 +333,26 @@ if uploaded_file:
                         "df": df_with_predictions.copy()
                     }
                 else:
-                    st.stop() # Stop if run_batch_predictions returns None (e.g., missing columns)
+                    st.stop()
             except Exception as e:
                 st.error(f"Error processing Excel file or during prediction: {e}")
                 st.exception(e)
                 st.stop()
         else:
-            # Load from cache
             st.info("Loading predictions from cache.")
             df_with_predictions = st.session_state.batch_predictions_cache["df"]
 
         # --- Display Results ---
         if df_with_predictions is not None:
-            st.subheader("Batch Prediction Results Table")
-            # Only display the columns intended for output
-            st.dataframe(df_with_predictions[DISPLAY_COLUMNS])
+            # # --- DEBUGGING LINE: Final DF Columns ---
+            # st.sidebar.write("--- Final DF Columns for Display ---")
+            # st.sidebar.write(f"df_with_predictions columns at display: {df_with_predictions.columns.tolist()}")
+            # st.sidebar.write(f"DISPLAY_COLUMNS needed: {DISPLAY_COLUMNS}")
+            # # --- END DEBUGGING LINE ---
 
-            # CSV download option
+            st.subheader("Batch Prediction Results Table")
+            st.dataframe(df_with_predictions[DISPLAY_COLUMNS]) # This is the line causing the error
+
             csv_data = df_with_predictions[DISPLAY_COLUMNS].to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="Download Results as CSV",
@@ -323,10 +363,8 @@ if uploaded_file:
 
             st.subheader("Interactive Visualizations of Attrition Risk")
 
-            # --- Scatter Plot: Hourly comp vs Age ---
             feature1, feature2 = 'Hourly comp', 'Age'
             if feature1 in df_with_predictions.columns and feature2 in df_with_predictions.columns:
-                # Filter for reasonable values for visualization
                 filtered_df = df_with_predictions[
                     (df_with_predictions[feature1] >= 5) & (df_with_predictions[feature1] <= 300) &
                     (df_with_predictions[feature2] >= 18) & (df_with_predictions[feature2] <= 70)
@@ -356,7 +394,6 @@ if uploaded_file:
             else:
                 st.warning(f"Missing numerical columns for scatter plot: '{feature1}' or '{feature2}'")
 
-            # --- Bar Plot: Average Attrition by State ---
             if 'State' in df_with_predictions.columns:
                 state_risk = df_with_predictions.groupby('State')['Predicted Attrition Probability'].mean().reset_index()
                 state_risk = state_risk.sort_values(by='Predicted Attrition Probability', ascending=False)
@@ -375,7 +412,6 @@ if uploaded_file:
             else:
                 st.warning("Column 'State' not found in data for plotting.")
 
-            # --- Bar Plot: Average Attrition by Home Department ---
             if 'Home Department' in df_with_predictions.columns:
                 dept_risk = df_with_predictions.groupby('Home Department')['Predicted Attrition Probability'].mean().reset_index()
                 dept_risk = dept_risk.sort_values(by='Predicted Attrition Probability', ascending=False)
@@ -400,7 +436,6 @@ if submit_single:
     with col_output:
         st.subheader("Single Prediction Output")
 
-        # Prepare input dictionary
         single_row_data = {
             "Gender": gender,
             "Marital status": marital_status,
@@ -408,29 +443,37 @@ if submit_single:
             "Race": race,
             "State": state,
             "Age": age,
-            "Hire Date": str(hire_date), # Convert date object to string for JSON
+            "Hire Date": str(hire_date),
             "Employee type": employee_type,
             "Rehire": rehire,
             "Home Department": home_dept
         }
 
-        # Call API and interpret results
         prediction_results = call_api_for_row(single_row_data, API_KEY)
         
         xgb_prediction = prediction_results.get("xgb_prediction")
         xgb_prob_leave = prediction_results.get("xgb_prob_leave")
+        xgb_3mo = prediction_results.get("xgb_prob_leave_3mo")
+        xgb_6mo = prediction_results.get("xgb_prob_leave_6mo")
+        xgb_12mo = prediction_results.get("xgb_prob_leave_12mo")
         cox_3mo = prediction_results.get("cox_leave_3mo")
         cox_6mo = prediction_results.get("cox_leave_6mo")
         cox_12mo = prediction_results.get("cox_leave_12mo")
 
         if xgb_prediction is not None and xgb_prediction != "ERROR":
-            # Display XGBoost prediction
             display_status = "Terminated (Leave)" if xgb_prediction == 1 else "Active (Stay)"
             st.write(f"**XGBoost Predicted Employee Status:** `{display_status}`")
 
             st.write("**Probabilities:**")
+            if xgb_prob_leave is not None:
+                st.markdown(f"- **XGBoost Probability of Leaving (Current Tenure):** **{xgb_prob_leave * 100:.2f}%**")
+            if xgb_3mo is not None:
+                st.markdown(f"- **XGBoost Probability of Leaving (3 months from now):** **{xgb_3mo * 100:.2f}%**")
+            if xgb_6mo is not None:
+                st.markdown(f"- **XGBoost Probability of Leaving (6 months from now):** **{xgb_6mo * 100:.2f}%**")
+            if xgb_12mo is not None:
+                st.markdown(f"- **XGBoost Probability of Leaving (12 months from now):** **{xgb_12mo * 100:.2f}%**")
             st.markdown(f"""
-            - **XGBoost Probability of Leaving:** **{xgb_prob_leave * 100:.2f}%**
             - **Cox PH Probability of Leaving (3 months):** **{cox_3mo * 100:.2f}%**
             - **Cox PH Probability of Leaving (6 months):** **{cox_6mo * 100:.2f}%**
             - **Cox PH Probability of Leaving (12 months):** **{cox_12mo * 100:.2f}%**
