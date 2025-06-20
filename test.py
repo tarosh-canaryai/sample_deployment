@@ -440,8 +440,7 @@ if submit_single:
         cox_12mo = prediction_results.get("cox_leave_12mo")
 
         if xgb_prob_leave is not None: # Check if at least the primary XGB prob is available
-            st.write("**Probabilities:**")
-            
+            st.write("**XGB Probabilities:**")
             # Display XGBoost Probabilities
             if xgb_prob_leave is not None:
                 st.markdown(f"- **XGBoost Probability of Leaving (Current Tenure):** **{xgb_prob_leave * 100:.2f}%**")
@@ -451,7 +450,8 @@ if submit_single:
                 st.markdown(f"- **XGBoost Probability of Leaving (6 months from now):** **{xgb_6mo * 100:.2f}%**")
             if xgb_12mo is not None:
                 st.markdown(f"- **XGBoost Probability of Leaving (12 months from now):** **{xgb_12mo * 100:.2f}%**")
-                        
+            
+            st.write("**Cox PH Probabilities:**")
             # Display Cox PH Probabilities (now uniform with individual checks)
             if cox_3mo is not None:
                 st.markdown(f"- **Cox PH Probability of Leaving (3 months):** **{cox_3mo * 100:.2f}%**")
