@@ -461,8 +461,8 @@ if submit_single:
         cox_12mo = prediction_results.get("cox_leave_12mo")
 
         if xgb_prediction is not None and xgb_prediction != "ERROR":
-            display_status = "Terminated (Leave)" if xgb_prediction == 1 else "Active (Stay)"
-            st.write(f"**XGBoost Predicted Employee Status:** `{display_status}`")
+            # display_status = "Terminated (Leave)" if xgb_prediction == 1 else "Active (Stay)"
+            # st.write(f"**XGBoost Predicted Employee Status:** `{display_status}`")
 
             st.write("**Probabilities:**")
             if xgb_prob_leave is not None:
