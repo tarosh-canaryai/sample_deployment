@@ -451,20 +451,21 @@ if submit_single:
                 st.markdown(f"- **XGBoost Probability of Leaving (6 months from now):** **{xgb_6mo * 100:.2f}%**")
             if xgb_12mo is not None:
                 st.markdown(f"- **XGBoost Probability of Leaving (12 months from now):** **{xgb_12mo * 100:.2f}%**")
+                        
+            # Display Cox PH Probabilities (now uniform with individual checks)
+            if cox_3mo is not None:
+                st.markdown(f"- **Cox PH Probability of Leaving (3 months):** **{cox_3mo * 100:.2f}%**")
+            if cox_6mo is not None:
+                st.markdown(f"- **Cox PH Probability of Leaving (6 months):** **{cox_6mo * 100:.2f}%**")
+            if cox_12mo is not None:
+                st.markdown(f"- **Cox PH Probability of Leaving (12 months):** **{cox_12mo * 100:.2f}%**")
             
-            # Display Cox PH Probabilities
-            st.markdown(f"""
-            - **Cox PH Probability of Leaving (3 months):** **{cox_3mo * 100:.2f}%**
-            - **Cox PH Probability of Leaving (6 months):** **{cox_6mo * 100:.2f}%**
-            - **Cox PH Probability of Leaving (12 months):** **{cox_12mo * 100:.2f}%**
-            """)
-
             # NEW: Calculate and Display Consolidated Probabilities
             st.write("**Consolidated Probabilities (XGBoost & Cox Average):**")
             consolidated_3mo = ((xgb_3mo if xgb_3mo is not None else 0) + (cox_3mo if cox_3mo is not None else 0)) / 2
             consolidated_6mo = ((xgb_6mo if xgb_6mo is not None else 0) + (cox_6mo if cox_6mo is not None else 0)) / 2
             consolidated_12mo = ((xgb_12mo if xgb_12mo is not None else 0) + (cox_12mo if cox_12mo is not None else 0)) / 2
-
+            
             if xgb_3mo is not None or cox_3mo is not None: # Only display if at least one component was present
                 st.markdown(f"- **Consolidated Prob. Leave (3 months):** **{consolidated_3mo * 100:.2f}%**")
             if xgb_6mo is not None or cox_6mo is not None:
