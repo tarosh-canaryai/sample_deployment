@@ -29,14 +29,16 @@ REQUIRED_API_COLUMNS = [
 
 # Columns to show in final output
 DISPLAY_COLUMNS = REQUIRED_API_COLUMNS + [
-    "XGBoost Prediction",
     "XGBoost Prob. Leave",       # Overall/Current Tenure XGBoost Prob
-    "XGBoost Prob. Leave (3mo)", # NEW: Adjusted XGBoost Prob for 3 months
-    "XGBoost Prob. Leave (6mo)", # NEW: Adjusted XGBoost Prob for 6 months
-    "XGBoost Prob. Leave (12mo)",# NEW: Adjusted XGBoost Prob for 12 months
+    "XGBoost Prob. Leave (3mo)", # Adjusted XGBoost Prob for 3 months
+    "XGBoost Prob. Leave (6mo)", # Adjusted XGBoost Prob for 6 months
+    "XGBoost Prob. Leave (12mo)",# Adjusted XGBoost Prob for 12 months
     "Cox Prob. Leave (3mo)",
     "Cox Prob. Leave (6mo)",
     "Cox Prob. Leave (12mo)",
+    "Consolidated Prob. Leave (3mo)", # NEW: Consolidated 3 months
+    "Consolidated Prob. Leave (6mo)", # NEW: Consolidated 6 months
+    "Consolidated Prob. Leave (12mo)",# NEW: Consolidated 12 months
     "Attrition Risk Level",      # Derived from XGBoost Prob. Leave
 ]
 
@@ -107,11 +109,6 @@ def call_api_for_row(row_data_dict, api_key):
         result_bytes = response.read()
         raw_response_string = result_bytes.decode("utf-8")
 
-        # # --- DEBUGGING LINE: Raw API Response ---
-        # st.sidebar.write("--- API Response Debug (call_api_for_row) ---")
-        # st.sidebar.write(f"Raw response (first 500 chars): {raw_response_string[:500]}...") 
-        # # --- END DEBUGGING LINE ---
-
         try:
             intermediate_dict = json.loads(raw_response_string)
             if isinstance(intermediate_dict, str):
@@ -121,17 +118,7 @@ def call_api_for_row(row_data_dict, api_key):
         except json.JSONDecodeError:
             output = json.loads(raw_response_string)
 
-        # # --- DEBUGGING LINE: Parsed API Output ---
-        # st.sidebar.write(f"Parsed Output Dict keys: {output.keys()}")
-        # if "predictions" in output and isinstance(output["predictions"], list) and len(output["predictions"]) > 0:
-        #     st.sidebar.write(f"First Prediction Dict keys: {output['predictions'][0].keys()}")
-        #     st.sidebar.json(output['predictions'][0]) # Show full content of first prediction
-        # else:
-        #     st.sidebar.write("No 'predictions' key or empty list in API response.")
-        # # --- END DEBUGGING LINE ---
-
-        # Initialize all prediction results with None
-        xgb_prediction = None
+        xgb_prediction = None # Removed from API output, but kept for compatibility if needed elsewhere
         xgb_prob_leave = None
         xgb_prob_leave_3mo = None
         xgb_prob_leave_6mo = None
@@ -143,7 +130,7 @@ def call_api_for_row(row_data_dict, api_key):
         if "predictions" in output and isinstance(output["predictions"], list) and len(output["predictions"]) > 0:
             first_prediction_dict = output["predictions"][0] 
             
-            xgb_prediction = first_prediction_dict.get("xgb_prediction")
+            xgb_prediction = first_prediction_dict.get("xgb_prediction") # Retain for API consistency, but not used in display
             xgb_prob_leave = first_prediction_dict.get("xgb_prob_leave")
             
             xgb_prob_leave_3mo = first_prediction_dict.get("xgb_prob_leave_3mo")
@@ -167,9 +154,6 @@ def call_api_for_row(row_data_dict, api_key):
 
     except urllib.error.HTTPError as error:
         st.error(f"API request failed for a row with status code: {error.code}. Response: {error.read().decode('utf8', 'ignore')}")
-        # # --- DEBUGGING LINE: Error return ---
-        # st.sidebar.error(f"API HTTPError: {error.code} - {error.read().decode('utf8', 'ignore')}")
-        # # --- END DEBUGGING LINE ---
         return {
             "xgb_prediction": "ERROR",
             "xgb_prob_leave": np.nan, 
@@ -182,9 +166,6 @@ def call_api_for_row(row_data_dict, api_key):
         }
     except json.JSONDecodeError as e:
         st.error(f"Failed to decode JSON from API for a row: {e}. Raw response: {raw_response_string}")
-        # # --- DEBUGGING LINE: Error return ---
-        # st.sidebar.error(f"API JSONDecodeError: {e}. Raw: {raw_response_string[:500]}...")
-        # # --- END DEBUGGING LINE ---
         return {
             "xgb_prediction": "ERROR",
             "xgb_prob_leave": np.nan,
@@ -198,9 +179,6 @@ def call_api_for_row(row_data_dict, api_key):
     except Exception as e:
         st.error(f"An unexpected error occurred for a row: {e}")
         st.exception(e)
-        # # --- DEBUGGING LINE: Error return ---
-        # st.sidebar.error(f"API General Error: {e}")
-        # # --- END DEBUGGING LINE ---
         return {
             "xgb_prediction": "ERROR",
             "xgb_prob_leave": np.nan,
@@ -251,7 +229,7 @@ def run_batch_predictions(uploaded_file_content, api_key_val, required_api_colum
         records_to_send.append(record_dict)
 
     # Initialize new columns to store predictions
-    df_full["XGBoost Prediction"] = ""
+    # Removed "XGBoost Prediction" initialization as it's no longer displayed directly
     df_full["XGBoost Prob. Leave"] = np.nan
     df_full["XGBoost Prob. Leave (3mo)"] = np.nan
     df_full["XGBoost Prob. Leave (6mo)"] = np.nan
@@ -259,11 +237,11 @@ def run_batch_predictions(uploaded_file_content, api_key_val, required_api_colum
     df_full["Cox Prob. Leave (3mo)"] = np.nan
     df_full["Cox Prob. Leave (6mo)"] = np.nan
     df_full["Cox Prob. Leave (12mo)"] = np.nan
+    # NEW: Initialize Consolidated Prob. Leave columns
+    df_full["Consolidated Prob. Leave (3mo)"] = np.nan
+    df_full["Consolidated Prob. Leave (6mo)"] = np.nan
+    df_full["Consolidated Prob. Leave (12mo)"] = np.nan
 
-    # # --- DEBUGGING LINE: Confirming initial columns ---
-    # st.sidebar.write("--- Batch Prediction Init Debug ---")
-    # st.sidebar.write(f"df_full columns after initialization: {df_full.columns.tolist()}")
-    # # --- END DEBUGGING LINE ---
 
     st.info("Beginning batch prediction. This may take a while for large files...")
     my_bar = st.progress(0, text="Processing records...")
@@ -271,7 +249,7 @@ def run_batch_predictions(uploaded_file_content, api_key_val, required_api_colum
     for i, record_dict in enumerate(records_to_send):
         prediction_results = call_api_for_row(record_dict, api_key_val)
         
-        xgb_prediction = prediction_results.get("xgb_prediction")
+        xgb_prediction = prediction_results.get("xgb_prediction") # Still get from API, but not used for display in batch
         xgb_prob_leave = prediction_results.get("xgb_prob_leave")
         xgb_3mo = prediction_results.get("xgb_prob_leave_3mo")
         xgb_6mo = prediction_results.get("xgb_prob_leave_6mo")
@@ -288,6 +266,17 @@ def run_batch_predictions(uploaded_file_content, api_key_val, required_api_colum
         df_full.loc[i, "Cox Prob. Leave (6mo)"] = cox_6mo * 100 if cox_6mo is not None else np.nan
         df_full.loc[i, "Cox Prob. Leave (12mo)"] = cox_12mo * 100 if cox_12mo is not None else np.nan
 
+        # NEW: Calculate Consolidated Probabilities
+        df_full.loc[i, "Consolidated Prob. Leave (3mo)"] = \
+            ((xgb_3mo if xgb_3mo is not None else 0) + (cox_3mo if cox_3mo is not None else 0)) / 2 * 100 \
+            if xgb_3mo is not None or cox_3mo is not None else np.nan
+        df_full.loc[i, "Consolidated Prob. Leave (6mo)"] = \
+            ((xgb_6mo if xgb_6mo is not None else 0) + (cox_6mo if cox_6mo is not None else 0)) / 2 * 100 \
+            if xgb_6mo is not None or cox_6mo is not None else np.nan
+        df_full.loc[i, "Consolidated Prob. Leave (12mo)"] = \
+            ((xgb_12mo if xgb_12mo is not None else 0) + (cox_12mo if cox_12mo is not None else 0)) / 2 * 100 \
+            if xgb_12mo is not None or cox_12mo is not None else np.nan
+
         percent_complete = (i + 1) / len(records_to_send)
         my_bar.progress(percent_complete, text=f"Processing record {i+1}/{len(records_to_send)}...")
 
@@ -303,11 +292,6 @@ def run_batch_predictions(uploaded_file_content, api_key_val, required_api_colum
         include_lowest=True
     )
     
-    # # --- DEBUGGING LINE FOR BATCH DF before return ---
-    # st.sidebar.write("--- Batch DF Columns before return ---")
-    # st.sidebar.write(f"df_full columns before returning: {df_full.columns.tolist()}")
-    # # --- END DEBUGGING LINE ---
-
     return df_full
 
 
@@ -344,14 +328,9 @@ if uploaded_file:
 
         # --- Display Results ---
         if df_with_predictions is not None:
-            # # --- DEBUGGING LINE: Final DF Columns ---
-            # st.sidebar.write("--- Final DF Columns for Display ---")
-            # st.sidebar.write(f"df_with_predictions columns at display: {df_with_predictions.columns.tolist()}")
-            # st.sidebar.write(f"DISPLAY_COLUMNS needed: {DISPLAY_COLUMNS}")
-            # # --- END DEBUGGING LINE ---
-
             st.subheader("Batch Prediction Results Table")
-            st.dataframe(df_with_predictions[DISPLAY_COLUMNS]) # This is the line causing the error
+            # This line should now work correctly with the new columns
+            st.dataframe(df_with_predictions[DISPLAY_COLUMNS]) 
 
             csv_data = df_with_predictions[DISPLAY_COLUMNS].to_csv(index=False).encode('utf-8')
             st.download_button(
@@ -451,7 +430,7 @@ if submit_single:
 
         prediction_results = call_api_for_row(single_row_data, API_KEY)
         
-        xgb_prediction = prediction_results.get("xgb_prediction")
+        xgb_prediction = prediction_results.get("xgb_prediction") # Not displayed, but kept from API result
         xgb_prob_leave = prediction_results.get("xgb_prob_leave")
         xgb_3mo = prediction_results.get("xgb_prob_leave_3mo")
         xgb_6mo = prediction_results.get("xgb_prob_leave_6mo")
@@ -460,11 +439,10 @@ if submit_single:
         cox_6mo = prediction_results.get("cox_leave_6mo")
         cox_12mo = prediction_results.get("cox_leave_12mo")
 
-        if xgb_prediction is not None and xgb_prediction != "ERROR":
-            # display_status = "Terminated (Leave)" if xgb_prediction == 1 else "Active (Stay)"
-            # st.write(f"**XGBoost Predicted Employee Status:** `{display_status}`")
-
+        if xgb_prob_leave is not None: # Check if at least the primary XGB prob is available
             st.write("**Probabilities:**")
+            
+            # Display XGBoost Probabilities
             if xgb_prob_leave is not None:
                 st.markdown(f"- **XGBoost Probability of Leaving (Current Tenure):** **{xgb_prob_leave * 100:.2f}%**")
             if xgb_3mo is not None:
@@ -473,13 +451,29 @@ if submit_single:
                 st.markdown(f"- **XGBoost Probability of Leaving (6 months from now):** **{xgb_6mo * 100:.2f}%**")
             if xgb_12mo is not None:
                 st.markdown(f"- **XGBoost Probability of Leaving (12 months from now):** **{xgb_12mo * 100:.2f}%**")
+            
+            # Display Cox PH Probabilities
             st.markdown(f"""
             - **Cox PH Probability of Leaving (3 months):** **{cox_3mo * 100:.2f}%**
             - **Cox PH Probability of Leaving (6 months):** **{cox_6mo * 100:.2f}%**
             - **Cox PH Probability of Leaving (12 months):** **{cox_12mo * 100:.2f}%**
             """)
+
+            # NEW: Calculate and Display Consolidated Probabilities
+            st.write("**Consolidated Probabilities (XGBoost & Cox Average):**")
+            consolidated_3mo = ((xgb_3mo if xgb_3mo is not None else 0) + (cox_3mo if cox_3mo is not None else 0)) / 2
+            consolidated_6mo = ((xgb_6mo if xgb_6mo is not None else 0) + (cox_6mo if cox_6mo is not None else 0)) / 2
+            consolidated_12mo = ((xgb_12mo if xgb_12mo is not None else 0) + (cox_12mo if cox_12mo is not None else 0)) / 2
+
+            if xgb_3mo is not None or cox_3mo is not None: # Only display if at least one component was present
+                st.markdown(f"- **Consolidated Prob. Leave (3 months):** **{consolidated_3mo * 100:.2f}%**")
+            if xgb_6mo is not None or cox_6mo is not None:
+                st.markdown(f"- **Consolidated Prob. Leave (6 months):** **{consolidated_6mo * 100:.2f}%**")
+            if xgb_12mo is not None or cox_12mo is not None:
+                st.markdown(f"- **Consolidated Prob. Leave (12 months):** **{consolidated_12mo * 100:.2f}%**")
+
         else:
-            st.error("Failed to get prediction for the single employee.")
+            st.error("Failed to get prediction for the single employee. Please check API connection and input data.")
 
         st.subheader("Input Data Sent to API")
         st.json(single_row_data)
