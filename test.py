@@ -230,6 +230,7 @@ def run_batch_predictions(uploaded_file_content, api_key_val, required_api_colum
     df_full["Attrition Risk Level (12mo)"] = None
 
 
+    st.info("Beginning batch prediction. This may take a while for large files...")
     my_bar = st.progress(0, text="Processing records...")
 
     for i, record_dict in enumerate(records_to_send):
@@ -374,6 +375,38 @@ if uploaded_file:
                 df_to_display = filtered_df_for_display[current_display_columns].rename(columns={selected_risk_column_name: "Attrition Risk Level"})
                 st.dataframe(df_to_display.sort_values(by=sort_column, ascending=False))
 
+                # --- START Code for Overall Attrition Risk Distribution Summary ---
+                if not filtered_df_for_display.empty:
+                    st.markdown("---")
+                    st.subheader("Overall Attrition Risk Distribution")
+
+                    risk_counts = filtered_df_for_display[selected_risk_column_name].value_counts().reindex(
+                        ['High Risk (>75%)', 'Medium Risk (50-75%)', 'Low Risk (<50%)']
+                    ).fillna(0).astype(int)
+
+                    total_employees_displayed = len(filtered_df_for_display)
+
+                    if total_employees_displayed > 0:
+                        st.markdown(
+                            f"**Total Employees Displayed:** {total_employees_displayed}  \n"
+                            f"**Filters Applied:** Timeframe = *{selected_timeframe}*, Risk Level = *{selected_risk_filter}*"
+                        )
+
+                        st.markdown("#### Risk Breakdown:")
+                        for risk_level, count in risk_counts.items():
+                            percentage = (count / total_employees_displayed) * 100
+                            st.markdown(
+                                f"- **{risk_level}**: {count} employees ({percentage:.1f}%)"
+                            )
+
+                        st.markdown(
+                            f"*Risk levels are calculated using the **{selected_timeframe}** consolidated probability.*\n"
+                        )
+                    else:
+                        st.info("No employees to analyze for overall risk distribution based on current filters.")
+
+
+                # --- END Code for Overall Attrition Risk Distribution Summary ---
 
                 csv_data = df_to_display.to_csv(index=False).encode('utf-8')
                 st.download_button(
@@ -438,6 +471,26 @@ if uploaded_file:
                     )
                     fig_bar.update_layout(xaxis_tickangle=-45)
                     st.plotly_chart(fig_bar, use_container_width=True)
+                    # PASTE THE SNIPPET HERE (right after the above line)
+
+                    # --- START Code for Top/Bottom N States Analysis ---
+                    if not state_risk.empty:
+                        N = 3 # You can make this configurable with st.number_input if desired
+                        top_n_states = state_risk.head(N)
+                        bottom_n_states = state_risk.tail(N).sort_values(by=selected_prob_column_for_plots, ascending=True)
+
+                        st.markdown(f"**Top States with Highest Attrition Risk ({selected_timeframe}):**")
+                        for idx, row in top_n_states.iterrows():
+                            st.markdown(f"- **{row['State']}**: {row[selected_prob_column_for_plots]:.2f}%")
+
+                        st.markdown(f"**Top States with Lowest Attrition Risk ({selected_timeframe}):**")
+                        for idx, row in bottom_n_states.iterrows():
+                            st.markdown(f"- **{row['State']}**: {row[selected_prob_column_for_plots]:.2f}%")
+
+                        st.markdown(f"*(Based on average {selected_timeframe} consolidated probability among displayed employees.)*")
+                    else:
+                        st.info("Not enough state data for detailed top/bottom analysis based on current filters.")
+                    # --- END Code for Top/Bottom N States Analysis ---
                 else:
                     st.warning("Column 'State' not found in data for plotting.")
 
@@ -458,6 +511,21 @@ if uploaded_file:
                     )
                     fig_dept_bar.update_layout(xaxis_tickangle=-45)
                     st.plotly_chart(fig_dept_bar, use_container_width=True)
+                    # --- START Code for Department Attrition Textual Analysis ---
+                    if not dept_risk.empty:
+                        max_dept_prob = dept_risk[selected_prob_column_for_plots].max()
+                        min_dept_prob = dept_risk[selected_prob_column_for_plots].min()
+                        max_dept_name = dept_risk.loc[dept_risk[selected_prob_column_for_plots].idxmax(), 'Home Department']
+                        min_dept_name = dept_risk.loc[dept_risk[selected_prob_column_for_plots].idxmin(), 'Home Department']
+
+                        st.markdown(f"**Key Insights by Home Department:**")
+                        st.markdown(f"- The highest average predicted attrition probability of **{max_dept_prob:.2f}%** is observed in **{max_dept_name}** department.")
+                        st.markdown(f"- The lowest average predicted attrition probability of **{min_dept_prob:.2f}%** is observed in **{min_dept_name}** department.")
+                        st.markdown(f"*(Based on {selected_timeframe} consolidated probability)*")
+                    else:
+                        st.info("No department data available for detailed analysis based on current filters.")
+                    # --- END Code for Department Attrition Textual Analysis ---
+
                 else:
                     st.warning("Column 'Home Department' not found in data for plotting.")
             else:
@@ -523,3 +591,44 @@ if submit_single:
 
         st.subheader("Input Data")
         st.json(single_row_data)
+
+# --- START Code for Technical Model Explanation ---
+st.markdown("---")  # Add a horizontal line for separation
+st.header(" Why This Hybrid Attrition Model Is Technically Superior & Hard to Replicate")
+
+st.markdown("""
+### 1. **Dual-Model Power (Cox PH + XGBoost)**
+Blends survival analysis with classification to predict **if** and **when** attrition may occur.  
+While most models stop at binary outcomes (stay/leave), this model forecasts time-based probabilities — at **3, 6, and 12 months**.
+
+### 2. **Advanced Survival Modeling**
+The Cox Proportional Hazards model captures **ongoing employment** and **censoring effects**, yielding accurate risk even for active employees.
+
+### 3. **Dynamic Tenure Simulation**
+XGBoost predictions are **recalculated with simulated tenure changes**, enabling powerful “what-if” scenarios for proactive HR planning.
+
+### 4. **Robust Preprocessing Engine**
+Automatically **imputes missing values**, handles **rare categories**, and manages **unknown inputs**, making it resilient to messy real-world data.
+
+### 5. **Time Normalization & Scaling**
+Prediction windows are **normalized across tenure**, ensuring that risk is measured consistently regardless of employment length.
+
+### 6. **Self-Healing & Modular Architecture**
+Automatically **adds missing features** and **drops irrelevant ones** during inference, allowing upgrades without retraining the entire model.
+
+### 7. **Enterprise-Grade Logging & Diagnostics**
+Every key action — like imputation, mapping, or error handling — is **fully logged with context**, making production debugging straightforward.
+
+### 8. **Versatile Input Handling**
+Handles **nested JSON**, **stringified blobs**, and **batch requests** while maintaining **row-level alignment** — essential for integration into HR dashboards.
+
+### 9. **Business-Ready Output**
+Outputs are **human-readable and actionable**, like:  
+ *3-month leave risk = 0.27*  
+No data science team needed to interpret results.
+
+### 10. **Deep Domain Intelligence**
+Encodes **rehire logic**, **employee type-specific rules**, and **rare-state handling**, embedding years of expert knowledge that’s tough to replicate without proprietary data.
+""")
+
+# --- END Code for Technical Model Explanation ---
