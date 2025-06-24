@@ -230,7 +230,6 @@ def run_batch_predictions(uploaded_file_content, api_key_val, required_api_colum
     df_full["Attrition Risk Level (12mo)"] = None
 
 
-    st.info("Beginning batch prediction. This may take a while for large files...")
     my_bar = st.progress(0, text="Processing records...")
 
     for i, record_dict in enumerate(records_to_send):
