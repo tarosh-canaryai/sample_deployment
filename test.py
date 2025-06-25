@@ -57,11 +57,11 @@ with col_input:
         hourly_comp = st.number_input("Hourly Compensation", min_value=0.0, step=0.5, value=5.0, key="single_hourly")
         race = st.selectbox("Race", ["B","H","T","W","X", "A", "I", "D", "O", "P"], key="single_race", help="Common racial codes. Backend performs mapping.")
         state = st.selectbox("State", ["AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
-                                        "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
-                                        "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
-                                        "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
-                                        "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
-                                        "DC" ], key="single_state")
+                                         "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+                                         "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+                                         "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+                                         "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+                                         "DC" ], key="single_state")
         age = st.number_input("Age", min_value=16, max_value=100, step=1, value=20, key="single_age")
 
         six_months_ago = date.today() - timedelta(days=6*30)
@@ -219,10 +219,10 @@ def run_batch_predictions(uploaded_file_content, api_key_val, required_api_colum
         records_to_send.append(record_dict)
 
     # Initialize new columns to store predictions
-    df_full["XGBoost Prob. Leave"] = np.nan # Kept internally for risk level calculation
-    df_full["Consolidated Prob. Leave (3mo)"] = np.nan
-    df_full["Consolidated Prob. Leave (6mo)"] = np.nan
-    df_full["Consolidated Prob. Leave (12mo)"] = np.nan
+    # Changed column names to reflect Cox-only probabilities
+    df_full["Cox Prob. Leave (3mo)"] = np.nan
+    df_full["Cox Prob. Leave (6mo)"] = np.nan
+    df_full["Cox Prob. Leave (12mo)"] = np.nan
 
     # Initialize new columns for dynamic Attrition Risk Level per timeframe
     df_full["Attrition Risk Level (3mo)"] = None
@@ -236,33 +236,22 @@ def run_batch_predictions(uploaded_file_content, api_key_val, required_api_colum
     for i, record_dict in enumerate(records_to_send):
         prediction_results = call_api_for_row(record_dict, api_key_val)
 
-        xgb_prob_leave = prediction_results.get("xgb_prob_leave") # Primary XGB prob for overall risk
-        xgb_3mo = prediction_results.get("xgb_prob_leave_3mo")
-        xgb_6mo = prediction_results.get("xgb_prob_leave_6mo")
-        xgb_12mo = prediction_results.get("xgb_prob_leave_12mo")
+        # Removed xgb_prob_leave and related xgb_mo variables as they are not used for output.
+        # Keeping them if the API response still provides them, but not using them.
         cox_3mo = prediction_results.get("cox_leave_3mo")
         cox_6mo = prediction_results.get("cox_leave_6mo")
         cox_12mo = prediction_results.get("cox_leave_12mo")
 
-        df_full.loc[i, "XGBoost Prob. Leave"] = xgb_prob_leave * 100 if xgb_prob_leave is not None else np.nan
+        # Directly assign Cox probabilities
+        df_full.loc[i, "Cox Prob. Leave (3mo)"] = cox_3mo * 100 if cox_3mo is not None else np.nan
+        df_full.loc[i, "Cox Prob. Leave (6mo)"] = cox_6mo * 100 if cox_6mo is not None else np.nan
+        df_full.loc[i, "Cox Prob. Leave (12mo)"] = cox_12mo * 100 if cox_12mo is not None else np.nan
 
-        # Calculate Consolidated Probabilities
-        consolidated_3mo_val = ((xgb_3mo if xgb_3mo is not None else 0) + (cox_3mo if cox_3mo is not None else 0)) / 2 * 100 \
-            if xgb_3mo is not None or cox_3mo is not None else np.nan
-        consolidated_6mo_val = ((xgb_6mo if xgb_6mo is not None else 0) + (cox_6mo if cox_6mo is not None else 0)) / 2 * 100 \
-            if xgb_6mo is not None or cox_6mo is not None else np.nan
-        consolidated_12mo_val = ((xgb_12mo if xgb_12mo is not None else 0) + (cox_12mo if cox_12mo is not None else 0)) / 2 * 100 \
-            if xgb_12mo is not None or cox_12mo is not None else np.nan
-
-        df_full.loc[i, "Consolidated Prob. Leave (3mo)"] = consolidated_3mo_val
-        df_full.loc[i, "Consolidated Prob. Leave (6mo)"] = consolidated_6mo_val
-        df_full.loc[i, "Consolidated Prob. Leave (12mo)"] = consolidated_12mo_val
-
-        # Calculate Attrition Risk Level for each timeframe dynamically
+        # Calculate Attrition Risk Level for each timeframe dynamically using Cox probabilities
         for prob_col, risk_col in [
-            ("Consolidated Prob. Leave (3mo)", "Attrition Risk Level (3mo)"),
-            ("Consolidated Prob. Leave (6mo)", "Attrition Risk Level (6mo)"),
-            ("Consolidated Prob. Leave (12mo)", "Attrition Risk Level (12mo)")
+            ("Cox Prob. Leave (3mo)", "Attrition Risk Level (3mo)"),
+            ("Cox Prob. Leave (6mo)", "Attrition Risk Level (6mo)"),
+            ("Cox Prob. Leave (12mo)", "Attrition Risk Level (12mo)")
         ]:
             if not pd.isna(df_full.loc[i, prob_col]):
                 df_full.loc[i, risk_col] = pd.cut(
@@ -278,10 +267,6 @@ def run_batch_predictions(uploaded_file_content, api_key_val, required_api_colum
 
     my_bar.empty()
     st.success("Batch prediction complete!")
-
-    # 'Attrition Risk Level' column is no longer directly set here for the entire DataFrame,
-    # as it will be selected dynamically for display.
-    # The individual 'Attrition Risk Level (Xmo)' columns now hold the specific risk levels.
 
     return df_full
 
@@ -321,7 +306,6 @@ if uploaded_file:
         if df_with_predictions is not None:
             st.subheader("Batch Prediction Results Table")
 
-            # HR-Friendly Filters and Display
             timeframe_options = ["All", "3 months", "6 months", "12 months"]
             selected_timeframe = st.selectbox(
                 "Select Attrition Timeframe",
@@ -333,15 +317,15 @@ if uploaded_file:
             # Determine which risk column and probability column to use based on selected_timeframe
             if selected_timeframe == "All":
                 display_prob_columns = [
-                    "Consolidated Prob. Leave (3mo)",
-                    "Consolidated Prob. Leave (6mo)",
-                    "Consolidated Prob. Leave (12mo)"
+                    "Cox Prob. Leave (3mo)", # Changed to Cox
+                    "Cox Prob. Leave (6mo)", # Changed to Cox
+                    "Cox Prob. Leave (12mo)" # Changed to Cox
                 ]
                 # For sorting and plotting when 'All' is selected, we'll default to 6mo
                 selected_risk_column_name = "Attrition Risk Level (6mo)"
-                selected_prob_column_for_plots = "Consolidated Prob. Leave (6mo)"
+                selected_prob_column_for_plots = "Cox Prob. Leave (6mo)" # Changed to Cox
             else:
-                display_prob_columns = [f"Consolidated Prob. Leave ({selected_timeframe.replace(' months', 'mo')})"]
+                display_prob_columns = [f"Cox Prob. Leave ({selected_timeframe.replace(' months', 'mo')})"] # Changed to Cox
                 selected_risk_column_name = f"Attrition Risk Level ({selected_timeframe.replace(' months', 'mo')})"
                 selected_prob_column_for_plots = display_prob_columns[0]
 
@@ -400,7 +384,7 @@ if uploaded_file:
                             )
 
                         st.markdown(
-                            f"*Risk levels are calculated using the **{selected_timeframe}** consolidated probability.*\n"
+                            f"*Risk levels are calculated using the **{selected_timeframe}** Cox probability.*\n" # Changed text
                         )
                     else:
                         st.info("No employees to analyze for overall risk distribution based on current filters.")
@@ -412,7 +396,7 @@ if uploaded_file:
                 st.download_button(
                     label=f"Download Results for {selected_timeframe} as CSV",
                     data=csv_data,
-                    file_name=f"attrition_predictions_{selected_timeframe.replace(' ', '_')}.csv",
+                    file_name=f"attrition_predictions_{selected_timeframe.replace(' ', '_')}_cox.csv", # Added cox to filename
                     mime="text/csv",
                 )
             else:
@@ -487,7 +471,7 @@ if uploaded_file:
                         for idx, row in bottom_n_states.iterrows():
                             st.markdown(f"- **{row['State']}**: {row[selected_prob_column_for_plots]:.2f}%")
 
-                        st.markdown(f"*(Based on average {selected_timeframe} consolidated probability among displayed employees.)*")
+                        st.markdown(f"*(Based on average {selected_timeframe} Cox probability among displayed employees.)*") # Changed text
                     else:
                         st.info("Not enough state data for detailed top/bottom analysis based on current filters.")
                     # --- END Code for Top/Bottom N States Analysis ---
@@ -521,7 +505,7 @@ if uploaded_file:
                         st.markdown(f"**Key Insights by Home Department:**")
                         st.markdown(f"- The highest average predicted attrition probability of **{max_dept_prob:.2f}%** is observed in **{max_dept_name}** department.")
                         st.markdown(f"- The lowest average predicted attrition probability of **{min_dept_prob:.2f}%** is observed in **{min_dept_name}** department.")
-                        st.markdown(f"*(Based on {selected_timeframe} consolidated probability)*")
+                        st.markdown(f"*(Based on {selected_timeframe} Cox probability)*") # Changed text
                     else:
                         st.info("No department data available for detailed analysis based on current filters.")
                     # --- END Code for Department Attrition Textual Analysis ---
@@ -552,46 +536,41 @@ if submit_single:
 
         prediction_results = call_api_for_row(single_row_data, API_KEY)
 
-        xgb_prob_leave = prediction_results.get("xgb_prob_leave")
-        xgb_3mo = prediction_results.get("xgb_prob_leave_3mo")
-        xgb_6mo = prediction_results.get("xgb_prob_leave_6mo")
-        xgb_12mo = prediction_results.get("xgb_prob_leave_12mo")
+        # Removed xgb_prob_leave and related xgb_mo variables as they are not used for display.
         cox_3mo = prediction_results.get("cox_leave_3mo")
         cox_6mo = prediction_results.get("cox_leave_6mo")
         cox_12mo = prediction_results.get("cox_leave_12mo")
 
-        if xgb_prob_leave is not None: # Check if at least the primary XGB prob is available
-            # Calculate and Display Consolidated Probabilities
-            st.write("**Consolidated Attrition Probabilities (Average of Models):**")
-            consolidated_3mo = ((xgb_3mo if xgb_3mo is not None else 0) + (cox_3mo if cox_3mo is not None else 0)) / 2
-            consolidated_6mo = ((xgb_6mo if xgb_6mo is not None else 0) + (cox_6mo if cox_6mo is not None else 0)) / 2
-            consolidated_12mo = ((xgb_12mo if xgb_12mo is not None else 0) + (cox_12mo if cox_12mo is not None else 0)) / 2
+        if cox_3mo is not None or cox_6mo is not None or cox_12mo is not None: # Check if at least one Cox prob is available
+            st.write("**Attrition Probabilities (Cox Model):**") # Changed header
 
-            if xgb_3mo is not None or cox_3mo is not None:
-                st.markdown(f"- **Prob. Leave (3 months):** **{consolidated_3mo * 100:.2f}%**")
-            if xgb_6mo is not None or cox_6mo is not None:
-                st.markdown(f"- **Prob. Leave (6 months):** **{consolidated_6mo * 100:.2f}%**")
-            if xgb_12mo is not None or cox_12mo is not None:
-                st.markdown(f"- **Prob. Leave (12 months):** **{consolidated_12mo * 100:.2f}%**")
+            if cox_3mo is not None:
+                st.markdown(f"- **Prob. Leave (3 months):** **{cox_3mo * 100:.2f}%**")
+            if cox_6mo is not None:
+                st.markdown(f"- **Prob. Leave (6 months):** **{cox_6mo * 100:.2f}%**")
+            if cox_12mo is not None:
+                st.markdown(f"- **Prob. Leave (12 months):** **{cox_12mo * 100:.2f}%**")
 
-            # Derive Attrition Risk Level for single prediction based on Consolidated 6mo Prob
+            # Derive Attrition Risk Level for single prediction based on Cox 6mo Prob
             # This ensures consistency with batch predictions.
-            temp_prob_for_risk = consolidated_6mo * 100
-            attrition_risk_level_single = pd.cut(
-                [temp_prob_for_risk],
-                bins=[0, 49.99, 75, 100],
-                labels=['Low Risk (<50%)', 'Medium Risk (50-75%)', 'High Risk (>75%)'],
-                right=True,
-                include_lowest=True
-            )[0]
-            st.markdown(f"- **Overall Attrition Risk Level (based on 6 months):** **{attrition_risk_level_single}**")
+            temp_prob_for_risk = (cox_6mo * 100) if cox_6mo is not None else np.nan
+            if not pd.isna(temp_prob_for_risk):
+                attrition_risk_level_single = pd.cut(
+                    [temp_prob_for_risk],
+                    bins=[0, 49.99, 75, 100],
+                    labels=['Low Risk (<50%)', 'Medium Risk (50-75%)', 'High Risk (>75%)'],
+                    right=True,
+                    include_lowest=True
+                )[0]
+                st.markdown(f"- **Overall Attrition Risk Level (based on 6 months):** **{attrition_risk_level_single}**")
+            else:
+                st.info("Could not determine Attrition Risk Level due to missing 6-month Cox probability.")
 
         else:
             st.error("Failed to get prediction for the single employee. Please check API connection and input data.")
 
         st.subheader("Input Data")
         st.json(single_row_data)
-
 # --- START Code for Technical Model Explanation ---
 st.markdown("---")  # Add a horizontal line for separation
 st.header(" Why This Hybrid Attrition Model Is Technically Superior & Hard to Replicate")
